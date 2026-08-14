@@ -1,33 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Product, ProductStatus } from '../types/product';
 
-// Função utilitária universal para ler variáveis tanto em Node.js (Vercel Serverless) quanto no Vite (Browser)
-function getEnvVar(key: string): string {
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key] || '';
-  }
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      // @ts-ignore
-      return import.meta.env[key] || '';
-    }
-  } catch (e) {
-    // Ignora erro se import.meta não existir
-  }
-  return '';
-}
-
-const supabaseUrl = 
-  getEnvVar('VITE_SUPABASE_URL') || 
-  getEnvVar('SUPABASE_URL') || 
-  '';
-
-const supabaseAnonKey = 
-  getEnvVar('VITE_SUPABASE_ANON_KEY') || 
-  getEnvVar('SUPABASE_ANON_KEY') || 
-  getEnvVar('SUPABASE_KEY') || 
-  '';
+// Lê variáveis de ambiente para a conexão Supabase no Front-end (Browser)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(
@@ -37,46 +13,25 @@ export function isSupabaseConfigured(): boolean {
   );
 }
 
-// Instância singleton do cliente Supabase
+// Instância oficial do cliente Supabase para o Client-Side
 export const supabase: SupabaseClient | null = isSupabaseConfigured() 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
 /**
- * Esquema recomendado para a tabela "products" no Supabase PostgreSQL:
- * 
- * CREATE TABLE products (
- *   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
- *   title TEXT NOT NULL,
- *   original_price NUMERIC(10,2) NOT NULL,
- *   discount_price NUMERIC(10,2) NOT NULL,
- *   discount_percentage INT NOT NULL,
- *   copy_text TEXT NOT NULL,
- *   affiliate_link TEXT NOT NULL,
- *   category TEXT NOT NULL,
- *   image_url TEXT NOT NULL,
- *   status TEXT DEFAULT 'pending' NOT NULL,
- *   created_at TIMESTAMPTZ DEFAULT now(),
- *   published_at TIMESTAMPTZ,
- *   ml_id TEXT UNIQUE
- * );
+ * Busca produtos salvos no Supabase ordenados por maior desconto (%)
  */
-
 export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
-  const client = supabase || (isSupabaseConfigured() ? createClient(supabaseUrl, supabaseAnonKey) : null);
-  if (!client) {
-    console.warn('[Supabase Warning] Cliente Supabase não configurado.');
-    return null;
-  }
+  if (!supabase) return null;
 
   try {
-    const { data, error } = await client
+    const { data, error } = await supabase
       .from('products')
       .select('*')
       .order('discount_percentage', { ascending: false });
 
     if (error) {
-      console.error('[Supabase Fetch Error] Falha ao carregar produtos:', error.message, error.details);
+      console.error('[Supabase Client Error] Falha ao carregar produtos:', error.message);
       return null;
     }
 
@@ -96,7 +51,7 @@ export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
       createdAt: item.created_at,
       publishedAt: item.published_at,
       rating: item.rating ? Number(item.rating) : 4.8,
-      reviewsCount: item.reviews_count ? Number(item.reviews_count) : 100,
+      reviewsCount: item.reviews_count ? Number(item.reviews_count) : 120,
       mlId: item.ml_id
     }));
   } catch (err: any) {
@@ -105,12 +60,39 @@ export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
   }
 }
 
+/**
+ * Faz o upsert direto dos produtos garimpados no Client-Side para a tabela products
+ */
+export async function upsertProductsToSupabase(formattedProducts: any[]): Promise<boolean> {
+  if (!supabase || formattedProducts.length === 0) return false;
+
+  try {
+    console.log(`[Supabase Client-Side] Gravando ${formattedProducts.length} produtos na tabela "products"...`);
+    const { error } = await supabase
+      .from('products')
+      .upsert(formattedProducts, { onConflict: 'ml_id' });
+
+    if (error) {
+      console.error('[Supabase Upsert Error]:', error.message, error.details);
+      return false;
+    }
+
+    console.log('[Supabase Client-Side] ✅ Gravação concluída com sucesso!');
+    return true;
+  } catch (err: any) {
+    console.error('[Supabase Upsert Exception]:', err);
+    return false;
+  }
+}
+
+/**
+ * Atualiza o status do produto (pending -> published) no Supabase
+ */
 export async function updateProductStatusInSupabase(
   productId: string, 
   status: ProductStatus
 ): Promise<boolean> {
-  const client = supabase || (isSupabaseConfigured() ? createClient(supabaseUrl, supabaseAnonKey) : null);
-  if (!client) return false;
+  if (!supabase) return false;
 
   try {
     const updateData: any = { status };
@@ -120,13 +102,13 @@ export async function updateProductStatusInSupabase(
       updateData.published_at = null;
     }
 
-    const { error } = await client
+    const { error } = await supabase
       .from('products')
       .update(updateData)
       .or(`id.eq.${productId},ml_id.eq.${productId}`);
 
     if (error) {
-      console.error('[Supabase Update Error] Falha ao atualizar status:', error.message, error.details);
+      console.error('[Supabase Update Status Error]:', error.message);
       return false;
     }
 

@@ -22,7 +22,7 @@ export function useProducts() {
   const [isFetchingML, setIsFetchingML] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({ id: 0, show: false, message: '' });
 
-  // Carrega os produtos diretamente do Supabase na inicialização
+  // Carrega os produtos salvos no Supabase na inicialização
   useEffect(() => {
     async function loadData() {
       setLoading(true);
@@ -52,16 +52,16 @@ export function useProducts() {
     setToast(prev => ({ ...prev, show: false }));
   }, []);
 
-  // Disparar busca manual de novas ofertas reais do Mercado Livre
+  // Disparar garimpo manual Client-Side direto na API pública do ML (sem servidor backend)
   const fetchNewMLOffers = useCallback(async () => {
     setIsFetchingML(true);
     showToastNotification(
-      'Conectando ao Mercado Livre...',
-      'Buscando ofertas reais com original_price > price.'
+      'Garimpando Mercado Livre...',
+      'Buscando ofertas com desconto real diretamente no seu navegador.'
     );
 
     try {
-      const newOffers = await fetchRealMercadoLivreOffers('');
+      const newOffers = await fetchRealMercadoLivreOffers();
 
       if (newOffers.length === 0) {
         showToastNotification(
@@ -69,7 +69,7 @@ export function useProducts() {
           'Nenhuma oferta com desconto real foi encontrada no momento.'
         );
       } else {
-        // Se o Supabase estiver configurado, recarrega do banco para garantir consistência
+        // Se o Supabase estiver configurado, recarrega do banco para sincronizar o estado exato
         if (isSupabaseConfigured()) {
           const freshFromSupabase = await fetchProductsFromSupabase();
           if (freshFromSupabase && freshFromSupabase.length > 0) {
@@ -99,8 +99,8 @@ export function useProducts() {
         });
 
         showToastNotification(
-          `⚡ ${newOffers.length} Novas Ofertas ML Garimpadas!`,
-          'Produtos adicionados e ordenados por maior desconto no Radar do Dia.'
+          `⚡ ${newOffers.length} Ofertas ML Garimpadas!`,
+          'Gravadas no Supabase e ordenadas por maior desconto no Radar do Dia.'
         );
       }
     } catch (err) {
