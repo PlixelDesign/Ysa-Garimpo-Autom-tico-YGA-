@@ -56,24 +56,28 @@ function getSupabaseServerClient() {
 }
 
 /**
- * 1. Autenticação Oficial OAuth 2.0 com Mercado Livre Developers (Client Credentials)
+ * Renovação do Access Token via Refresh Token do Mercado Livre
+ * POST https://api.mercadolibre.com/oauth/token
+ * Body: grant_type=refresh_token, client_id, client_secret, refresh_token
  */
-async function getMercadoLivreAccessToken(): Promise<string | null> {
+async function refreshMercadoLivreAccessToken(): Promise<string | null> {
   const appId = getEnv('ML_APP_ID') || getEnv('VITE_ML_APP_ID');
   const clientSecret = getEnv('ML_CLIENT_SECRET') || getEnv('VITE_ML_CLIENT_SECRET');
+  const refreshToken = getEnv('ML_REFRESH_TOKEN') || getEnv('VITE_ML_REFRESH_TOKEN');
 
-  if (!appId || !clientSecret) {
-    console.warn('[ML OAuth Warning] ML_APP_ID ou ML_CLIENT_SECRET não configurados nas variáveis da Vercel. Tentando requisição não autenticada...');
+  if (!appId || !clientSecret || !refreshToken) {
+    console.error('[ML Refresh Token Error] Credenciais ML_APP_ID, ML_CLIENT_SECRET ou ML_REFRESH_TOKEN ausentes no ambiente da Vercel.');
     return null;
   }
 
   try {
-    console.log('[ML OAuth] Solicitando access_token oficial em https://api.mercadolibre.com/oauth/token...');
-    
+    console.log('[ML OAuth] Renovando access_token via refresh_token...');
+
     const params = new URLSearchParams();
-    params.append('grant_type', 'client_credentials');
+    params.append('grant_type', 'refresh_token');
     params.append('client_id', appId);
     params.append('client_secret', clientSecret);
+    params.append('refresh_token', refreshToken);
 
     const tokenResponse = await fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
@@ -86,20 +90,21 @@ async function getMercadoLivreAccessToken(): Promise<string | null> {
 
     if (!tokenResponse.ok) {
       const errBody = await tokenResponse.text();
-      console.error(`[ML OAuth Error] Falha na autenticação (Status ${tokenResponse.status}): ${errBody}`);
+      console.error(`[ML Refresh Token Error] Falha na renovação (Status ${tokenResponse.status}): ${errBody}`);
       return null;
     }
 
     const tokenData = await tokenResponse.json();
+
     if (tokenData.access_token) {
-      console.log('[ML OAuth] ✅ Token obtido com sucesso!');
+      console.log('[ML OAuth] ✅ Novo access_token renovado com sucesso!');
       return tokenData.access_token;
     } else {
-      console.error('[ML OAuth Error] Resposta sem access_token:', tokenData);
+      console.error('[ML Refresh Token Error] Resposta sem access_token:', tokenData);
       return null;
     }
-  } catch (oauthErr: any) {
-    console.error('[ML OAuth Exception] Exceção ao obter token:', oauthErr.message || oauthErr);
+  } catch (refreshErr: any) {
+    console.error('[ML Refresh Token Exception] Exceção ao renovar token:', refreshErr.message || refreshErr);
     return null;
   }
 }
@@ -144,7 +149,7 @@ ${originalLink}`;
 }
 
 /**
- * Lógica principal da Rota de API do Servidor (OAuth Token + ML Search + Supabase Upsert)
+ * Lógica principal da Rota de API do Servidor (Refresh Token OAuth + GET ML Search + Supabase Upsert)
  */
 export async function handleSearchMLOffers(requestedQuery?: string) {
   const queryTerm = requestedQuery || 
@@ -152,30 +157,35 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
 
   console.log(`[Search ML API] Iniciando busca com termo: "${queryTerm}"...`);
 
-  // 1. Obter Access Token Oficial do Mercado Livre
-  const accessToken = await getMercadoLivreAccessToken();
+  // 1. Obter Access Token Renovado via Refresh Token
+  const accessToken = await refreshMercadoLivreAccessToken();
+
+  if (!accessToken) {
+    console.error('[Search ML API Error] Impossível prosseguir sem um access_token válido renovado.');
+    return {
+      success: false,
+      error: 'Falha de autenticação com a API do Mercado Livre (Refresh Token inválido ou expirado).'
+    };
+  }
 
   let discountedItems: MLRawItem[] = [];
   let rawResults: MLRawItem[] = [];
 
-  // 2. GET em https://api.mercadolibre.com/sites/MLB/search com Authorization Header
+  // 2. GET em https://api.mercadolibre.com/sites/MLB/search com Header Authorization: Bearer <access_token>
   try {
     const mlApiUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(queryTerm)}&limit=50`;
-    const headers: Record<string, string> = {
+    const headers = {
+      'Authorization': `Bearer ${accessToken}`,
       'Accept': 'application/json'
     };
 
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-
-    console.log(`[Search ML API] Fetching ${mlApiUrl} com ${accessToken ? 'Authorization: Bearer <token>' : 'sem token'}...`);
+    console.log(`[Search ML API] Requisitando ${mlApiUrl} com Authorization Bearer token do usuário...`);
     const response = await fetch(mlApiUrl, { headers });
 
     if (!response.ok) {
       const errText = await response.text();
       console.error(`[ML API HTTP Error] Status ${response.status}: ${errText}`);
-      throw new Error(`Falha na API do Mercado Livre (Status ${response.status})`);
+      throw new Error(`Falha na API do Mercado Livre (Status ${response.status}): ${errText}`);
     }
 
     const data = await response.json();
@@ -203,10 +213,10 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       }
     }
   } catch (mlErr: any) {
-    console.error('[ML Fetch Exception] Erro crítico ao conectar na API do Mercado Livre:', mlErr.message || mlErr);
+    console.error('[ML Fetch Exception] Erro crítico ao consultar a API do Mercado Livre:', mlErr.message || mlErr);
     return {
       success: false,
-      error: `Erro de comunicação com a API do Mercado Livre: ${mlErr.message}`
+      error: `Erro ao consultar a API do Mercado Livre: ${mlErr.message}`
     };
   }
 
@@ -217,7 +227,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       query_used: queryTerm,
       total_found: rawResults.length,
       discounted_count: 0,
-      authenticated: Boolean(accessToken),
+      authenticated: true,
       products: []
     };
   }
@@ -246,7 +256,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       discount_price: discountPrice,
       discount_percentage: discountPercentage,
       copy_text: copyText,
-      affiliate_link: originalLink, // Salva a URL original
+      affiliate_link: originalLink, // Salva o link original
       category: 'Utilidades do Lar',
       image_url: imageUrl,
       status: 'pending',
@@ -285,7 +295,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
   return {
     success: true,
     query_used: queryTerm,
-    authenticated: Boolean(accessToken),
+    authenticated: true,
     total_found: rawResults.length,
     discounted_count: formattedProducts.length,
     supabase_persisted: supabaseUpsertSuccess,
@@ -321,6 +331,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const result = await handleSearchMLOffers(query);
+
+    if (!result.success) {
+      return res.status(500).json(result);
+    }
+
     return res.status(200).json(result);
   } catch (err: any) {
     console.error('[API Route Handler Crash]:', err);
