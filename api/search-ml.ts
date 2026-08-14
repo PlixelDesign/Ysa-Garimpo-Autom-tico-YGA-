@@ -21,7 +21,7 @@ const HIGH_LIQUIDITY_KEYWORDS = [
 ];
 
 /**
- * Converte imagens de baixa resolução do Mercado Livre (-I.jpg) para alta qualidade (-O.jpg ou -V.jpg)
+ * Converte imagens de baixa resolução do Mercado Livre (-I.jpg) para alta qualidade (-O.jpg)
  */
 export function getHighResImageUrl(thumbnailUrl: string): string {
   if (!thumbnailUrl) return '';
@@ -39,7 +39,7 @@ export function generatePersuasiveCopy(
   originalPrice: number,
   discountPrice: number,
   discountPercentage: number,
-  affiliateLink: string
+  originalLink: string
 ): string {
   const formatBRL = (val: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -55,8 +55,8 @@ ${title}
 ❌ De ${formatBRL(originalPrice)}
 ✅ Por apenas ${formatBRL(discountPrice)} (-${discountPercentage}% OFF) 🚨
 
-👇 GARANTA O SEU COM FRETE GRÁTIS NO LINK DO PERFIL / STORY:
-${affiliateLink}`;
+👇 CONFIRA O PRODUTO NO LINK:
+${originalLink}`;
 }
 
 /**
@@ -98,7 +98,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       }
     }
 
-    // 3. Trata os dados, calcula a porcentagem de desconto e formata para o Supabase
+    // 3. Trata os dados e salva APENAS o link original do produto (permalink)
     const formattedProducts = discountedItems.map(item => {
       const originalPrice = Number(item.original_price);
       const discountPrice = Number(item.price);
@@ -106,13 +106,13 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
         ((originalPrice - discountPrice) / originalPrice) * 100
       );
       const imageUrl = getHighResImageUrl(item.thumbnail);
-      const affiliateLink = item.permalink;
+      const originalLink = item.permalink; // Link original sem tokens dinâmicos
       const copyText = generatePersuasiveCopy(
         item.title,
         originalPrice,
         discountPrice,
         discountPercentage,
-        affiliateLink
+        originalLink
       );
 
       return {
@@ -122,7 +122,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
         discount_price: discountPrice,
         discount_percentage: discountPercentage,
         copy_text: copyText,
-        affiliate_link: affiliateLink,
+        affiliate_link: originalLink, // Salva o link original
         category: 'Utilidades do Lar',
         image_url: imageUrl,
         status: 'pending',
@@ -133,7 +133,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
     // Ordenar do maior para o menor desconto (%)
     formattedProducts.sort((a, b) => b.discount_percentage - a.discount_percentage);
 
-    // 4. Salvar os resultados diretamente na tabela "products" do Supabase (se configurado)
+    // 4. Salvar os resultados na tabela "products" do Supabase (se configurado)
     if (isSupabaseConfigured() && supabase && formattedProducts.length > 0) {
       const { error } = await supabase
         .from('products')
@@ -166,12 +166,16 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const query = req.query?.q || req.body?.q || '';
-  const result = await handleSearchMLOffers(query);
+  try {
+    const query = req.query?.q || (req.body && typeof req.body === 'object' ? req.body.q : '') || '';
+    const result = await handleSearchMLOffers(query);
 
-  if (!result.success) {
-    return res.status(500).json(result);
+    if (!result.success) {
+      return res.status(500).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
-
-  return res.status(200).json(result);
 }

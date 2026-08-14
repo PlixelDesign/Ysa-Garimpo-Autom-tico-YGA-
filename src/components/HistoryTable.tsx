@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product } from '../types/product';
-import { Copy, Check, ExternalLink, RotateCcw, Calendar, ShoppingBag } from 'lucide-react';
+import { Copy, Check, ExternalLink, RotateCcw, Calendar, ShoppingBag, Link as LinkIcon } from 'lucide-react';
 
 interface HistoryTableProps {
   products: Product[];
@@ -14,12 +14,34 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
   onRestore
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedOriginalId, setCopiedOriginalId] = useState<string | null>(null);
 
   const handleCopyLink = async (product: Product) => {
     const success = await onCopy(product);
     if (success) {
       setCopiedId(product.id);
       setTimeout(() => setCopiedId(null), 2500);
+    }
+  };
+
+  const handleCopyOriginalLink = async (product: Product) => {
+    try {
+      const urlToCopy = product.affiliateLink;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(urlToCopy);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = urlToCopy;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+
+      setCopiedOriginalId(product.id);
+      setTimeout(() => setCopiedOriginalId(null), 2500);
+    } catch (err) {
+      console.error('Erro ao copiar link original:', err);
     }
   };
 
@@ -75,7 +97,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
         </div>
       </div>
 
-      {/* Tabela Responsiva no estilo Vercel / Stripe */}
+      {/* Tabela Responsiva */}
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -91,6 +113,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
           <tbody className="divide-y divide-slate-100 text-sm">
             {products.map((product) => {
               const isItemCopied = copiedId === product.id;
+              const isOriginalCopied = copiedOriginalId === product.id;
 
               return (
                 <tr
@@ -146,7 +169,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
 
                   {/* Coluna 6: Botões de Ação */}
                   <td className="py-3 px-4 whitespace-nowrap text-right space-x-2">
-                    {/* Botão Copiar Link */}
+                    {/* Botão Copiar Copy + Link */}
                     <button
                       onClick={() => handleCopyLink(product)}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm ${
@@ -154,7 +177,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
                           ? 'bg-emerald-600 text-white'
                           : 'bg-amber-400 hover:bg-amber-300 text-slate-950 border border-amber-500/30'
                       }`}
-                      title="Copiar Copy + Link de Afiliado novamente"
+                      title="Copiar Copy + Link"
                     >
                       {isItemCopied ? (
                         <>
@@ -162,9 +185,27 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3.5 h-3.5" /> Copiar Link
+                          <Copy className="w-3.5 h-3.5" /> Copiar Copy
                         </>
                       )}
+                    </button>
+
+                    {/* Botão Copiar Link Original */}
+                    <button
+                      onClick={() => handleCopyOriginalLink(product)}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-semibold text-xs border transition-all ${
+                        isOriginalCopied
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      }`}
+                      title="Copiar Link Original para o app Mercado Livre Criadores"
+                    >
+                      {isOriginalCopied ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <LinkIcon className="w-3.5 h-3.5 text-slate-500" />
+                      )}
+                      <span>Link Original</span>
                     </button>
 
                     {/* Botão Restaurar */}

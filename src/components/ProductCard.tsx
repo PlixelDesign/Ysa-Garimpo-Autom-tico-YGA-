@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product } from '../types/product';
-import { Copy, Check, ExternalLink, Calendar, Star, Edit3, Tag, ChevronDown, ChevronUp } from 'lucide-react';
+import { Copy, Check, ExternalLink, Calendar, Star, Edit3, Tag, ChevronDown, ChevronUp, Link as LinkIcon } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
@@ -16,6 +16,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onEditCopy
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
+  const [copiedLinkOnly, setCopiedLinkOnly] = useState<boolean>(false);
   const [isCopyExpanded, setIsCopyExpanded] = useState<boolean>(false);
 
   const handleCopyClick = async () => {
@@ -23,6 +24,28 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
+  // Copiar estritamente o Link Original do produto para o app Mercado Livre Criadores
+  const handleCopyOriginalLink = async () => {
+    try {
+      const urlToCopy = product.affiliateLink;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(urlToCopy);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = urlToCopy;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+
+      setCopiedLinkOnly(true);
+      setTimeout(() => setCopiedLinkOnly(false), 2500);
+    } catch (err) {
+      console.error('Erro ao copiar link original:', err);
     }
   };
 
@@ -34,7 +57,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     }).format(val);
   };
 
-  // Seleciona cor da badge de desconto (Maior que 45% = verde vibrante, senão esmeralda)
   const isHighDiscount = product.discountPercentage >= 40;
 
   return (
@@ -51,7 +73,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           loading="lazy"
         />
 
-        {/* Overlay sutil ao passar o mouse */}
         <div className="absolute inset-0 bg-slate-900/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
 
         {/* Badge do Canto Superior Esquerdo: Porcentagem de Desconto */}
@@ -119,7 +140,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </span>
           </div>
 
-          {/* Caixa de Texto da Copy (Rolável ou Expansível) */}
+          {/* Caixa de Texto da Copy */}
           <div className="relative mb-4 bg-slate-900 text-slate-100 rounded-xl p-3 border border-slate-800 text-xs font-mono">
             <div className="flex items-center justify-between text-[11px] font-sans font-semibold text-slate-400 pb-2 border-b border-slate-800 mb-2">
               <span className="flex items-center gap-1 text-amber-400">
@@ -145,7 +166,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               {product.copyText}
             </div>
 
-            {/* Botão Ver Mais / Menos para Copies Longas */}
             {product.copyText.length > 150 && (
               <button
                 onClick={() => setIsCopyExpanded(!isCopyExpanded)}
@@ -161,10 +181,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </div>
         </div>
 
-        {/* SEÇÃO INFERIOR: Botões de Ação Principais (Velocidade & Botões Grandes) */}
+        {/* SEÇÃO INFERIOR: Botões de Ação Principais */}
         <div className="space-y-2 pt-2 border-t border-slate-100">
           
-          {/* Botão Primário Lado a Lado (Copiar Copy + Link) - Destaque Mercado Livre Yellow */}
+          {/* 1. Botão Primário Largo: Copiar Copy + Link */}
           <button
             id={`copy-btn-${product.id}`}
             onClick={handleCopyClick}
@@ -187,13 +207,37 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             )}
           </button>
 
-          {/* Botão Secundário Menor (Marcar como Publicado) */}
+          {/* 2. Botão Estratégico: Copiar Link Original (Para o app ML Criadores) */}
+          <button
+            id={`copy-original-btn-${product.id}`}
+            onClick={handleCopyOriginalLink}
+            className={`w-full py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+              copiedLinkOnly
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+            }`}
+            title="Copiar URL original para converter no aplicativo do Mercado Livre Criadores"
+          >
+            {copiedLinkOnly ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Link Original Copiado!</span>
+              </>
+            ) : (
+              <>
+                <LinkIcon className="w-3.5 h-3.5 text-slate-500" />
+                <span>Copiar Link Original</span>
+              </>
+            )}
+          </button>
+
+          {/* 3. Botão Secundário: Marcar como Publicado */}
           <button
             id={`publish-btn-${product.id}`}
             onClick={() => onPublish(product.id)}
-            className="w-full py-2 px-3 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200/80 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-1.5 px-3 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
           >
-            <Calendar className="w-3.5 h-3.5 text-slate-500" />
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
             <span>Marcar como Publicado</span>
           </button>
 
