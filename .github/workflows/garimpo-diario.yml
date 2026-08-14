@@ -26,7 +26,7 @@ jobs:
           # Substitua a URL abaixo ('https://sua-app-ysa-garimpo.vercel.app/api/search-ml')
           # pelo domínio real em produção da sua aplicação (ex: Vercel, Netlify ou servidor próprio).
           # =========================================================================
-          API_URL="https://sua-app-ysa-garimpo.vercel.app/api/search-ml"
+          API_URL="https://ysa-garimpo.vercel.app/api/search-ml"
           
           # Caso queira disparar localmente ou via webhook customizado, altere a URL ou passe via GitHub Secret.
           RESPONSE=$(curl -s -X POST "$API_URL" \
