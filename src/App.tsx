@@ -8,7 +8,7 @@ import { HistoryTable } from './components/HistoryTable';
 import { ToastNotification } from './components/ToastNotification';
 import { QuickEditModal } from './components/QuickEditModal';
 import { Product } from './types/product';
-import { Sparkles, ArrowUpRight, Database, Info } from 'lucide-react';
+import { Sparkles, ArrowUpRight, Database, Info, RefreshCw } from 'lucide-react';
 
 export const App: React.FC = () => {
   const {
@@ -54,29 +54,39 @@ export const App: React.FC = () => {
         {/* Barra de Métricas Chave */}
         <MetricStats metrics={metrics} />
 
-        {/* Banner Informativo de Conexão Supabase / Mock */}
-        {!isUsingSupabase && (
-          <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-slate-100 border border-amber-300/60 shadow-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        {/* Banner de Boas-vindas / Ação de Garimpo se o radar estiver vazio */}
+        {radarProducts.length === 0 && !loading && (
+          <div className="mb-6 p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-slate-100 border border-amber-300/60 shadow-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-400 text-slate-950 rounded-lg font-bold">
-                <Database className="w-5 h-5" />
+              <div className="p-2.5 bg-amber-400 text-slate-950 rounded-xl font-bold shadow-sm">
+                <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  Exibindo Dados Garimpados (Integração API ML Ativa)
+                <h2 className="text-sm font-bold text-slate-900">
+                  Radar do Dia Atualizado em Tempo Real
                 </h2>
-                <p className="text-xs text-slate-600">
-                  Clique no botão <strong className="text-slate-900">🔄 Buscar Novas Ofertas ML</strong> no cabeçalho para garimpar descontos em tempo real da API do Mercado Livre!
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Clique no botão <strong className="text-slate-900">🔄 Buscar Novas Ofertas ML</strong> no topo para garimpar descontos de oportunidade na API do Mercado Livre e sincronizar no Supabase.
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setShowSupabaseGuide(!showSupabaseGuide)}
-              className="text-xs font-bold text-slate-900 bg-white hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm transition-colors flex items-center gap-1 whitespace-nowrap self-end sm:self-auto cursor-pointer"
-            >
-              <Info className="w-3.5 h-3.5 text-amber-600" />
-              {showSupabaseGuide ? 'Ocultar Instruções' : 'Ver Guia Supabase'}
-            </button>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                onClick={fetchNewMLOffers}
+                disabled={isFetchingML}
+                className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isFetchingML ? 'animate-spin' : ''}`} />
+                <span>{isFetchingML ? 'Garimpando ML...' : 'Iniciar Garimpo ML'}</span>
+              </button>
+              <button
+                onClick={() => setShowSupabaseGuide(!showSupabaseGuide)}
+                className="text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 px-3 py-2 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Info className="w-3.5 h-3.5 text-amber-600" />
+                <span>Status Supabase</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -85,7 +95,7 @@ export const App: React.FC = () => {
           <div className="mb-6 p-5 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 text-xs font-mono shadow-xl animate-fade-in">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3 font-sans">
               <h3 className="font-bold text-amber-400 text-sm flex items-center gap-2">
-                ⚡ Como Injetar a Chamada da API Supabase & GitHub Actions
+                ⚡ Status da Integração Supabase & Vercel
               </h3>
               <button
                 onClick={() => setShowSupabaseGuide(false)}
@@ -95,12 +105,12 @@ export const App: React.FC = () => {
               </button>
             </div>
             <p className="font-sans text-slate-300 mb-3 leading-relaxed">
-              O projeto possui a Rota de API em <code className="text-amber-300">api/search-ml.ts</code> e a automação do GitHub Actions em <code className="text-amber-300">.github/workflows/garimpo-diario.yml</code>. Para conectar seu banco real:
+              O sistema lê e grava diretamente na tabela <code className="text-amber-300">products</code> do Supabase via Rota de API <code className="text-amber-300">api/search-ml.ts</code> e variáveis de ambiente na Vercel:
             </p>
             <ol className="list-decimal list-inside space-y-1.5 text-slate-300 font-mono bg-slate-950 p-3 rounded-lg border border-slate-800/80">
-              <li>Crie um arquivo <code className="text-amber-400">.env</code> na raiz do projeto baseado no <code className="text-amber-400">.env.example</code>.</li>
-              <li>Adicione sua <code className="text-amber-400">VITE_SUPABASE_URL</code> e <code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code>.</li>
-              <li>No GitHub Actions, atualize a URL de produção no arquivo <code className="text-amber-400">.github/workflows/garimpo-diario.yml</code>.</li>
+              <li><code className="text-amber-400">VITE_SUPABASE_URL</code> (ou <code className="text-amber-400">SUPABASE_URL</code>) configurada no painel Vercel.</li>
+              <li><code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code> (ou <code className="text-amber-400">SUPABASE_ANON_KEY</code>) configurada no painel Vercel.</li>
+              <li>Status de Conexão Atual: <strong className={isUsingSupabase ? "text-emerald-400" : "text-amber-400"}>{isUsingSupabase ? "Conectado ao Supabase PostgreSQL" : "Aguardando variáveis na Vercel / Local"}</strong></li>
             </ol>
           </div>
         )}
@@ -119,7 +129,7 @@ export const App: React.FC = () => {
         {loading ? (
           <div className="py-20 text-center text-slate-500">
             <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm font-semibold">Carregando produtos do garimpo...</p>
+            <p className="text-sm font-semibold">Sincronizando produtos do garimpo...</p>
           </div>
         ) : activeTab === 'radar' ? (
           <RadarGrid
@@ -160,14 +170,14 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-900">Ysa Garimpo Automático (YGA)</span>
             <span>•</span>
-            <span>Motor de Garimpo Híbrido Mercado Livre</span>
+            <span>Motor de Garimpo Mercado Livre</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-600">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> API MLB Search Ready
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> MLB API Realtime
             </span>
             <a
-              href="https://api.mercadolibre.com/sites/MLB/search?q=organizador%20cozinha&limit=20"
+              href="https://api.mercadolibre.com/sites/MLB/search?q=mop%20giratorio&limit=50"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-amber-600 flex items-center gap-1 transition-colors"

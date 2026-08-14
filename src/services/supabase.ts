@@ -1,19 +1,33 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Product, ProductStatus } from '../types/product';
 
-// Configuração das variáveis de ambiente para o Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Função utilitária universal para ler variáveis tanto em Node.js (Vercel Serverless) quanto no Vite (Browser)
+function getEnvVar(key: string): string {
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key] || '';
+  }
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key] || '';
+    }
+  } catch (e) {
+    // Ignora erro se import.meta não existir
+  }
+  return '';
+}
 
-/**
- * Instância oficial do cliente Supabase.
- * Para conectar ao seu banco real:
- * 1. Preencha o arquivo .env na raiz com VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.
- * 2. Crie a tabela "products" no Supabase com o esquema documentado abaixo.
- */
-export const supabase = isSupabaseConfigured() 
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+const supabaseUrl = 
+  getEnvVar('VITE_SUPABASE_URL') || 
+  getEnvVar('SUPABASE_URL') || 
+  '';
+
+const supabaseAnonKey = 
+  getEnvVar('VITE_SUPABASE_ANON_KEY') || 
+  getEnvVar('SUPABASE_ANON_KEY') || 
+  getEnvVar('SUPABASE_KEY') || 
+  '';
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(
@@ -22,6 +36,11 @@ export function isSupabaseConfigured(): boolean {
     supabaseUrl !== 'https://your-project-id.supabase.co'
   );
 }
+
+// Instância singleton do cliente Supabase
+export const supabase: SupabaseClient | null = isSupabaseConfigured() 
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 /**
  * Esquema recomendado para a tabela "products" no Supabase PostgreSQL:
@@ -39,46 +58,49 @@ export function isSupabaseConfigured(): boolean {
  *   status TEXT DEFAULT 'pending' NOT NULL,
  *   created_at TIMESTAMPTZ DEFAULT now(),
  *   published_at TIMESTAMPTZ,
- *   ml_id TEXT
+ *   ml_id TEXT UNIQUE
  * );
  */
 
 export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
-  if (!supabase) return null;
+  const client = supabase || (isSupabaseConfigured() ? createClient(supabaseUrl, supabaseAnonKey) : null);
+  if (!client) {
+    console.warn('[Supabase Warning] Cliente Supabase não configurado.');
+    return null;
+  }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('products')
       .select('*')
       .order('discount_percentage', { ascending: false });
 
     if (error) {
-      console.error('[Supabase Error] Falha ao carregar produtos:', error.message);
+      console.error('[Supabase Fetch Error] Falha ao carregar produtos:', error.message, error.details);
       return null;
     }
 
     if (!data) return [];
 
-    // Mapeamento dos campos snake_case do Postgres para camelCase do TypeScript
     return data.map((item: any) => ({
-      id: item.id,
+      id: item.id || item.ml_id,
       title: item.title,
       originalPrice: Number(item.original_price),
       discountPrice: Number(item.discount_price),
       discountPercentage: Number(item.discount_percentage),
       copyText: item.copy_text,
-      affiliateLink: item.affiliate_link,
-      category: item.category,
+      affiliateLink: item.affiliate_link || item.original_link || item.permalink,
+      category: item.category || 'Utilidades do Lar',
       imageUrl: item.image_url,
-      status: item.status as ProductStatus,
+      status: (item.status as ProductStatus) || 'pending',
       createdAt: item.created_at,
       publishedAt: item.published_at,
       rating: item.rating ? Number(item.rating) : 4.8,
       reviewsCount: item.reviews_count ? Number(item.reviews_count) : 100,
       mlId: item.ml_id
     }));
-  } catch (err) {
-    console.error('[Supabase Error]', err);
+  } catch (err: any) {
+    console.error('[Supabase Fetch Exception]:', err);
     return null;
   }
 }
@@ -87,7 +109,8 @@ export async function updateProductStatusInSupabase(
   productId: string, 
   status: ProductStatus
 ): Promise<boolean> {
-  if (!supabase) return false;
+  const client = supabase || (isSupabaseConfigured() ? createClient(supabaseUrl, supabaseAnonKey) : null);
+  if (!client) return false;
 
   try {
     const updateData: any = { status };
@@ -97,19 +120,19 @@ export async function updateProductStatusInSupabase(
       updateData.published_at = null;
     }
 
-    const { error } = await supabase
+    const { error } = await client
       .from('products')
       .update(updateData)
-      .eq('id', productId);
+      .or(`id.eq.${productId},ml_id.eq.${productId}`);
 
     if (error) {
-      console.error('[Supabase Error] Falha ao atualizar status:', error.message);
+      console.error('[Supabase Update Error] Falha ao atualizar status:', error.message, error.details);
       return false;
     }
 
     return true;
-  } catch (err) {
-    console.error('[Supabase Error]', err);
+  } catch (err: any) {
+    console.error('[Supabase Update Exception]:', err);
     return false;
   }
 }

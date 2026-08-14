@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Product, FilterCategoryType, MetricSummary, ProductStatus } from '../types/product';
-import { INITIAL_MOCK_PRODUCTS } from '../data/mockProducts';
 import { isSupabaseConfigured, fetchProductsFromSupabase, updateProductStatusInSupabase } from '../services/supabase';
 import { fetchRealMercadoLivreOffers } from '../services/mlSearchService';
 import confetti from 'canvas-confetti';
@@ -13,29 +12,30 @@ export interface ToastState {
 }
 
 export function useProducts() {
-  const [products, setProducts] = useState<Product[]>(INITIAL_MOCK_PRODUCTS);
+  // Estado inicial 100% limpo sem dados fictícios (Mock Purge)
+  const [products, setProducts] = useState<Product[]>([]);
   const [activeTab, setActiveTab] = useState<'radar' | 'history'>('radar');
   const [selectedCategory, setSelectedCategory] = useState<FilterCategoryType>('Todas');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isUsingSupabase, setIsUsingSupabase] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [isFetchingML, setIsFetchingML] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({ id: 0, show: false, message: '' });
 
-  // Tenta carregar dados do Supabase se estiver configurado
+  // Carrega os produtos diretamente do Supabase na inicialização
   useEffect(() => {
-    async function loadSupabaseData() {
+    async function loadData() {
+      setLoading(true);
       if (isSupabaseConfigured()) {
-        setLoading(true);
         const data = await fetchProductsFromSupabase();
-        if (data && data.length > 0) {
+        if (data) {
           setProducts(data);
           setIsUsingSupabase(true);
         }
-        setLoading(false);
       }
+      setLoading(false);
     }
-    loadSupabaseData();
+    loadData();
   }, []);
 
   // Exibir notificação Toast com fechamento automático
@@ -57,29 +57,40 @@ export function useProducts() {
     setIsFetchingML(true);
     showToastNotification(
       'Conectando ao Mercado Livre...',
-      'Buscando produtos com desconto real de original_price > price.'
+      'Buscando ofertas reais com original_price > price.'
     );
 
     try {
-      const newOffers = await fetchRealMercadoLivreOffers('organizador cozinha');
+      const newOffers = await fetchRealMercadoLivreOffers('');
 
       if (newOffers.length === 0) {
         showToastNotification(
           'Busca Concluída',
-          'Nenhuma nova oferta com desconto foi encontrada no momento.'
+          'Nenhuma oferta com desconto real foi encontrada no momento.'
         );
       } else {
-        // Mesclar novos produtos evitando duplicatas por mlId ou id
-        setProducts(prev => {
-          const existingIds = new Set(prev.map(p => p.mlId || p.id));
-          const filteredNew = newOffers.filter(p => !existingIds.has(p.mlId || p.id));
-          return [...filteredNew, ...prev];
-        });
+        // Se o Supabase estiver configurado, recarrega do banco para garantir consistência
+        if (isSupabaseConfigured()) {
+          const freshFromSupabase = await fetchProductsFromSupabase();
+          if (freshFromSupabase && freshFromSupabase.length > 0) {
+            setProducts(freshFromSupabase);
+          } else {
+            setProducts(prev => {
+              const existingIds = new Set(prev.map(p => p.mlId || p.id));
+              const filteredNew = newOffers.filter(p => !existingIds.has(p.mlId || p.id));
+              return [...filteredNew, ...prev];
+            });
+          }
+        } else {
+          setProducts(prev => {
+            const existingIds = new Set(prev.map(p => p.mlId || p.id));
+            const filteredNew = newOffers.filter(p => !existingIds.has(p.mlId || p.id));
+            return [...filteredNew, ...prev];
+          });
+        }
 
-        // Garantir que a visualização mude para a aba Radar do Dia
         setActiveTab('radar');
 
-        // Efeito comemorativo de Confetti
         confetti({
           particleCount: 50,
           spread: 70,
@@ -100,9 +111,9 @@ export function useProducts() {
     }
   }, [showToastNotification]);
 
-  // Copiar Copy + Link para a área de transferência com feedback tátil e confetti
+  // Copiar Copy + Link para a área de transferência
   const copyProductData = useCallback(async (product: Product) => {
-    const textToCopy = `${product.copyText}\n\n🛒 Link de Compra: ${product.affiliateLink}`;
+    const textToCopy = `${product.copyText}\n\n🛒 Link do Produto: ${product.affiliateLink}`;
     
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -141,7 +152,7 @@ export function useProducts() {
 
     setProducts(prevProducts =>
       prevProducts.map(p =>
-        p.id === productId
+        p.id === productId || p.mlId === productId
           ? { ...p, status: 'published' as ProductStatus, publishedAt: nowIso }
           : p
       )
@@ -161,7 +172,7 @@ export function useProducts() {
   const restoreToRadar = useCallback(async (productId: string) => {
     setProducts(prevProducts =>
       prevProducts.map(p =>
-        p.id === productId
+        p.id === productId || p.mlId === productId
           ? { ...p, status: 'pending' as ProductStatus, publishedAt: undefined }
           : p
       )
@@ -177,16 +188,15 @@ export function useProducts() {
     }
   }, [isUsingSupabase, showToastNotification]);
 
-  // Atualizar a Copy de um produto (ex: via modal de edição)
+  // Atualizar a Copy de um produto
   const updateProductCopy = useCallback((productId: string, newCopyText: string) => {
     setProducts(prev =>
-      prev.map(p => (p.id === productId ? { ...p, copyText: newCopyText } : p))
+      prev.map(p => (p.id === productId || p.mlId === productId ? { ...p, copyText: newCopyText } : p))
     );
     showToastNotification('Copy Atualizada!', 'As alterações foram salvas com sucesso.');
   }, [showToastNotification]);
 
-  // Filtragem e Ordenação dos Produtos do RADAR DO DIA
-  // Regra de Negócio Inegociável: ORDENAÇÃO SEMPRE POR MAIOR DESCONTO (%)
+  // RADAR DO DIA: Ordenado SEMPRE por maior desconto (%)
   const radarProducts = useMemo(() => {
     return products
       .filter(p => p.status === 'pending')
@@ -200,10 +210,10 @@ export function useProducts() {
           p.category.toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => b.discountPercentage - a.discountPercentage); // Maior desconto no topo!
+      .sort((a, b) => b.discountPercentage - a.discountPercentage);
   }, [products, selectedCategory, searchQuery]);
 
-  // Produtos do HISTÓRICO
+  // HISTÓRICO: Ordenado por publicação mais recente
   const historyProducts = useMemo(() => {
     return products
       .filter(p => p.status === 'published')
@@ -223,7 +233,7 @@ export function useProducts() {
       });
   }, [products, selectedCategory, searchQuery]);
 
-  // Cálculo das Métricas resumidas
+  // Métricas
   const metrics = useMemo<MetricSummary>(() => {
     const pendingList = products.filter(p => p.status === 'pending');
     const publishedList = products.filter(p => p.status === 'published');

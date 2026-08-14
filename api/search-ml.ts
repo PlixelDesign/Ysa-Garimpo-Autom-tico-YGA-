@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from '../src/services/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 export interface MLRawItem {
   id: string;
@@ -11,7 +11,7 @@ export interface MLRawItem {
   available_quantity?: number;
 }
 
-// Termos com altíssima liquidez de descontos reais no Mercado Livre
+// Termos de busca com alta liquidez de desconto real no Mercado Livre
 const HIGH_LIQUIDITY_KEYWORDS = [
   'mop giratorio',
   'lixeira inox sensor',
@@ -21,7 +21,42 @@ const HIGH_LIQUIDITY_KEYWORDS = [
 ];
 
 /**
- * Converte imagens de baixa resolução do Mercado Livre (-I.jpg) para alta qualidade (-O.jpg)
+ * Utilitário universal para obter variáveis de ambiente no Node.js/Vercel Serverless
+ */
+function getEnv(key: string): string {
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env[key]) return process.env[key]!;
+    if (key === 'VITE_SUPABASE_URL' && process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
+    if (key === 'VITE_SUPABASE_ANON_KEY') {
+      if (process.env.SUPABASE_ANON_KEY) return process.env.SUPABASE_ANON_KEY;
+      if (process.env.SUPABASE_KEY) return process.env.SUPABASE_KEY;
+    }
+  }
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch (e) {}
+  return '';
+}
+
+// Inicializa o cliente Supabase Serverless usando process.env
+function getSupabaseServerClient() {
+  const url = getEnv('VITE_SUPABASE_URL');
+  const key = getEnv('VITE_SUPABASE_ANON_KEY');
+
+  if (!url || !key || url === 'https://your-project-id.supabase.co') {
+    console.warn('[Server Supabase Warning] Credenciais VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY ausentes em process.env.');
+    return null;
+  }
+
+  return createClient(url, key);
+}
+
+/**
+ * Converte miniaturas do Mercado Livre (-I.jpg) em imagens de alta resolução (-O.jpg)
  */
 export function getHighResImageUrl(thumbnailUrl: string): string {
   if (!thumbnailUrl) return '';
@@ -32,7 +67,7 @@ export function getHighResImageUrl(thumbnailUrl: string): string {
 }
 
 /**
- * Gera texto persuasivo de vendas (Copy) com foco em conversão para Instagram / Telegram
+ * Gera Copy Persuasiva usando o link original real do Mercado Livre
  */
 export function generatePersuasiveCopy(
   title: string,
@@ -60,36 +95,45 @@ ${originalLink}`;
 }
 
 /**
- * Lógica principal da Rota de API do Servidor (Serverless Function / API Route)
+ * Lógica principal da Rota de API do Servidor (Fetch ML + Supabase Upsert com Tracing Robusto)
  */
 export async function handleSearchMLOffers(requestedQuery?: string) {
-  try {
-    // Escolhe uma palavra-chave de alta liquidez se a busca não for especificada
-    const queryTerm = requestedQuery || 
-      HIGH_LIQUIDITY_KEYWORDS[Math.floor(Math.random() * HIGH_LIQUIDITY_KEYWORDS.length)];
+  const queryTerm = requestedQuery || 
+    HIGH_LIQUIDITY_KEYWORDS[Math.floor(Math.random() * HIGH_LIQUIDITY_KEYWORDS.length)];
 
-    // 1. Busca 50 itens para garantir alta amostragem de descontos
+  console.log(`[Search ML API] Iniciando busca com termo: "${queryTerm}"...`);
+
+  let discountedItems: MLRawItem[] = [];
+  let rawResults: MLRawItem[] = [];
+
+  // 1. Fetch na API do Mercado Livre com Rastreio de Erros
+  try {
     const mlApiUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(queryTerm)}&limit=50`;
     const response = await fetch(mlApiUrl);
 
     if (!response.ok) {
-      throw new Error(`Erro na API do Mercado Livre: ${response.statusText}`);
+      const errText = await response.text();
+      console.error(`[ML API HTTP Error] Status ${response.status}: ${errText}`);
+      throw new Error(`Falha na API do Mercado Livre (Status ${response.status})`);
     }
 
     const data = await response.json();
-    let results: MLRawItem[] = data.results || [];
+    rawResults = data.results || [];
 
-    // 2. Valida rigorosamente se item.original_price existe e se item.price < item.original_price
-    let discountedItems = results.filter(
+    // Filtrar apenas se original_price existe e for maior que price
+    discountedItems = rawResults.filter(
       item => item.original_price && Number(item.price) < Number(item.original_price)
     );
 
-    // Fallback: Se o termo escolhido tiver poucos descontos, tenta com 'mop giratorio'
+    console.log(`[Search ML API] "${queryTerm}": ${rawResults.length} itens encontrados, ${discountedItems.length} com desconto real.`);
+
+    // Fallback se o termo sorteado tiver menos de 3 descontos
     if (discountedItems.length < 3 && queryTerm !== 'mop giratorio') {
+      console.log('[Search ML API] Descontos insuficientes. Executando fallback com "mop giratorio"...');
       const fallbackUrl = `https://api.mercadolibre.com/sites/MLB/search?q=mop%20giratorio&limit=50`;
-      const fbResponse = await fetch(fallbackUrl);
-      if (fbResponse.ok) {
-        const fbData = await fbResponse.json();
+      const fbRes = await fetch(fallbackUrl);
+      if (fbRes.ok) {
+        const fbData = await fbRes.json();
         const fbResults: MLRawItem[] = fbData.results || [];
         const fbDiscounted = fbResults.filter(
           item => item.original_price && Number(item.price) < Number(item.original_price)
@@ -97,85 +141,132 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
         discountedItems = [...discountedItems, ...fbDiscounted];
       }
     }
+  } catch (mlErr: any) {
+    console.error('[ML Fetch Exception] Erro crítico ao conectar na API do Mercado Livre:', mlErr.message || mlErr);
+    return {
+      success: false,
+      error: `Erro de comunicação com o Mercado Livre: ${mlErr.message}`
+    };
+  }
 
-    // 3. Trata os dados e salva APENAS o link original do produto (permalink)
-    const formattedProducts = discountedItems.map(item => {
-      const originalPrice = Number(item.original_price);
-      const discountPrice = Number(item.price);
-      const discountPercentage = Math.round(
-        ((originalPrice - discountPrice) / originalPrice) * 100
-      );
-      const imageUrl = getHighResImageUrl(item.thumbnail);
-      const originalLink = item.permalink; // Link original sem tokens dinâmicos
-      const copyText = generatePersuasiveCopy(
-        item.title,
-        originalPrice,
-        discountPrice,
-        discountPercentage,
-        originalLink
-      );
+  if (discountedItems.length === 0) {
+    console.warn('[Search ML API] Nenhum item com desconto real encontrado.');
+    return {
+      success: true,
+      query_used: queryTerm,
+      total_found: rawResults.length,
+      discounted_count: 0,
+      products: []
+    };
+  }
 
-      return {
-        ml_id: item.id,
-        title: item.title,
-        original_price: originalPrice,
-        discount_price: discountPrice,
-        discount_percentage: discountPercentage,
-        copy_text: copyText,
-        affiliate_link: originalLink, // Salva o link original
-        category: 'Utilidades do Lar',
-        image_url: imageUrl,
-        status: 'pending',
-        created_at: new Date().toISOString()
-      };
-    });
+  // 2. Mapeamento de dados sem fakes ou mocks
+  const formattedProducts = discountedItems.map(item => {
+    const originalPrice = Number(item.original_price);
+    const discountPrice = Number(item.price);
+    const discountPercentage = Math.round(
+      ((originalPrice - discountPrice) / originalPrice) * 100
+    );
+    const imageUrl = getHighResImageUrl(item.thumbnail);
+    const originalLink = item.permalink; // Link original real do Mercado Livre
+    const copyText = generatePersuasiveCopy(
+      item.title,
+      originalPrice,
+      discountPrice,
+      discountPercentage,
+      originalLink
+    );
 
-    // Ordenar do maior para o menor desconto (%)
-    formattedProducts.sort((a, b) => b.discount_percentage - a.discount_percentage);
+    return {
+      ml_id: item.id,
+      title: item.title,
+      original_price: originalPrice,
+      discount_price: discountPrice,
+      discount_percentage: discountPercentage,
+      copy_text: copyText,
+      affiliate_link: originalLink, // Salva o link original
+      category: 'Utilidades do Lar',
+      image_url: imageUrl,
+      status: 'pending',
+      created_at: new Date().toISOString()
+    };
+  });
 
-    // 4. Salvar os resultados na tabela "products" do Supabase (se configurado)
-    if (isSupabaseConfigured() && supabase && formattedProducts.length > 0) {
-      const { error } = await supabase
+  // Ordenar do maior para o menor desconto (%)
+  formattedProducts.sort((a, b) => b.discount_percentage - a.discount_percentage);
+
+  // 3. Upsert no Supabase usando o cliente Serverless inicializado com process.env
+  const supabaseServer = getSupabaseServerClient();
+  let supabaseUpsertSuccess = false;
+  let supabaseErrorMsg = null;
+
+  if (supabaseServer) {
+    try {
+      console.log(`[Supabase Server] Executando upsert de ${formattedProducts.length} produtos na tabela "products"...`);
+      const { error } = await supabaseServer
         .from('products')
         .upsert(formattedProducts, { onConflict: 'ml_id' });
 
       if (error) {
-        console.error('[Supabase Upsert Error]:', error.message);
+        supabaseErrorMsg = error.message;
+        console.error('[Supabase Upsert Error] Falha ao gravar no banco:', error.message, error.details, error.code);
+      } else {
+        supabaseUpsertSuccess = true;
+        console.log('[Supabase Server] ✅ Upsert concluído com sucesso!');
       }
+    } catch (sbErr: any) {
+      supabaseErrorMsg = sbErr.message;
+      console.error('[Supabase Upsert Exception] Exceção ao gravar no banco:', sbErr);
     }
-
-    return {
-      success: true,
-      query_used: queryTerm,
-      total_found: results.length,
-      discounted_count: formattedProducts.length,
-      products: formattedProducts
-    };
-  } catch (err: any) {
-    console.error('[Search ML API Route Error]:', err);
-    return {
-      success: false,
-      error: err.message || 'Erro ao buscar ofertas no Mercado Livre'
-    };
+  } else {
+    console.warn('[Supabase Server] Upsert ignorado pois as credenciais VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY não foram encontradas em process.env.');
   }
+
+  return {
+    success: true,
+    query_used: queryTerm,
+    total_found: rawResults.length,
+    discounted_count: formattedProducts.length,
+    supabase_persisted: supabaseUpsertSuccess,
+    supabase_error: supabaseErrorMsg,
+    products: formattedProducts
+  };
 }
 
-// Handler padrão para compatibilidade com Vercel / Node Serverless API Route (HTTP POST/GET)
+// Handler HTTP Serverless para Vercel Functions
 export default async function handler(req: any, res: any) {
+  // CORS Preflight
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   try {
-    const query = req.query?.q || (req.body && typeof req.body === 'object' ? req.body.q : '') || '';
-    const result = await handleSearchMLOffers(query);
-
-    if (!result.success) {
-      return res.status(500).json(result);
+    let query = '';
+    if (req.query && req.query.q) {
+      query = req.query.q;
+    } else if (req.body) {
+      if (typeof req.body === 'string') {
+        try {
+          const parsed = JSON.parse(req.body);
+          query = parsed.q || '';
+        } catch (e) {}
+      } else if (typeof req.body === 'object') {
+        query = req.body.q || '';
+      }
     }
 
+    const result = await handleSearchMLOffers(query);
     return res.status(200).json(result);
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    console.error('[API Route Handler Crash]:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Erro interno na Rota de API'
+    });
   }
 }
