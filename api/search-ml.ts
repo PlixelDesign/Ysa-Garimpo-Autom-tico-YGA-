@@ -11,12 +11,20 @@ export interface MLRawItem {
   available_quantity?: number;
 }
 
+// Termos com altíssima liquidez de descontos reais no Mercado Livre
+const HIGH_LIQUIDITY_KEYWORDS = [
+  'mop giratorio',
+  'lixeira inox sensor',
+  'escorredor louca inox',
+  'organizador armario cozinha',
+  'kit potes hermeticos'
+];
+
 /**
  * Converte imagens de baixa resolução do Mercado Livre (-I.jpg) para alta qualidade (-O.jpg ou -V.jpg)
  */
 export function getHighResImageUrl(thumbnailUrl: string): string {
   if (!thumbnailUrl) return '';
-  // Troca o sufixo -I.jpg por -O.jpg para imagem original em alta resolução
   return thumbnailUrl
     .replace(/-I\.jpg$/i, '-O.jpg')
     .replace(/-I\.webp$/i, '-O.webp')
@@ -54,9 +62,14 @@ ${affiliateLink}`;
 /**
  * Lógica principal da Rota de API do Servidor (Serverless Function / API Route)
  */
-export async function handleSearchMLOffers(query: string = 'organizador cozinha') {
+export async function handleSearchMLOffers(requestedQuery?: string) {
   try {
-    const mlApiUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(query)}&limit=20`;
+    // Escolhe uma palavra-chave de alta liquidez se a busca não for especificada
+    const queryTerm = requestedQuery || 
+      HIGH_LIQUIDITY_KEYWORDS[Math.floor(Math.random() * HIGH_LIQUIDITY_KEYWORDS.length)];
+
+    // 1. Busca 50 itens para garantir alta amostragem de descontos
+    const mlApiUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(queryTerm)}&limit=50`;
     const response = await fetch(mlApiUrl);
 
     if (!response.ok) {
@@ -64,22 +77,36 @@ export async function handleSearchMLOffers(query: string = 'organizador cozinha'
     }
 
     const data = await response.json();
-    const results: MLRawItem[] = data.results || [];
+    let results: MLRawItem[] = data.results || [];
 
-    // 1. Filtrar APENAS produtos onde price é MENOR que original_price (Desconto real)
-    const discountedItems = results.filter(
-      item => item.original_price && item.original_price > item.price
+    // 2. Valida rigorosamente se item.original_price existe e se item.price < item.original_price
+    let discountedItems = results.filter(
+      item => item.original_price && Number(item.price) < Number(item.original_price)
     );
 
-    // 2. Tratar os dados, calcular porcentagens e montar a estrutura da tabela Supabase
+    // Fallback: Se o termo escolhido tiver poucos descontos, tenta com 'mop giratorio'
+    if (discountedItems.length < 3 && queryTerm !== 'mop giratorio') {
+      const fallbackUrl = `https://api.mercadolibre.com/sites/MLB/search?q=mop%20giratorio&limit=50`;
+      const fbResponse = await fetch(fallbackUrl);
+      if (fbResponse.ok) {
+        const fbData = await fbResponse.json();
+        const fbResults: MLRawItem[] = fbData.results || [];
+        const fbDiscounted = fbResults.filter(
+          item => item.original_price && Number(item.price) < Number(item.original_price)
+        );
+        discountedItems = [...discountedItems, ...fbDiscounted];
+      }
+    }
+
+    // 3. Trata os dados, calcula a porcentagem de desconto e formata para o Supabase
     const formattedProducts = discountedItems.map(item => {
-      const originalPrice = item.original_price!;
-      const discountPrice = item.price;
+      const originalPrice = Number(item.original_price);
+      const discountPrice = Number(item.price);
       const discountPercentage = Math.round(
         ((originalPrice - discountPrice) / originalPrice) * 100
       );
       const imageUrl = getHighResImageUrl(item.thumbnail);
-      const affiliateLink = item.permalink; // Em produção, injeta a tag de afiliado do ML
+      const affiliateLink = item.permalink;
       const copyText = generatePersuasiveCopy(
         item.title,
         originalPrice,
@@ -103,7 +130,10 @@ export async function handleSearchMLOffers(query: string = 'organizador cozinha'
       };
     });
 
-    // 3. Salvar os resultados diretamente na tabela "products" do Supabase (se configurado)
+    // Ordenar do maior para o menor desconto (%)
+    formattedProducts.sort((a, b) => b.discount_percentage - a.discount_percentage);
+
+    // 4. Salvar os resultados diretamente na tabela "products" do Supabase (se configurado)
     if (isSupabaseConfigured() && supabase && formattedProducts.length > 0) {
       const { error } = await supabase
         .from('products')
@@ -116,6 +146,7 @@ export async function handleSearchMLOffers(query: string = 'organizador cozinha'
 
     return {
       success: true,
+      query_used: queryTerm,
       total_found: results.length,
       discounted_count: formattedProducts.length,
       products: formattedProducts
@@ -135,7 +166,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const query = req.query?.q || req.body?.q || 'organizador cozinha';
+  const query = req.query?.q || req.body?.q || '';
   const result = await handleSearchMLOffers(query);
 
   if (!result.success) {
