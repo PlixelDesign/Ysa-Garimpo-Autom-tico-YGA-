@@ -1,43 +1,65 @@
 /**
- * Ysa Garimpo Automático (YGA) - Worker Local de Extração & Garimpo
- * 
+ * Ysa Garimpo Automático (YGA) — Worker Local com Apify
+ *
  * Execução: node garimpo-worker.js
+ *
+ * Requisitos no .env:
+ *   APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxx
+ *   VITE_SUPABASE_URL=https://seu-projeto.supabase.co
+ *   VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui
  */
 
 import fs from 'fs';
 import path from 'path';
+import { ApifyClient } from 'apify-client';
 import { createClient } from '@supabase/supabase-js';
 
-// Carregador simples de arquivo .env local
+// ─────────────────────────────────────────────
+// 1. CARREGA .env LOCAL
+// ─────────────────────────────────────────────
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
-  if (fs.existsSync(envPath)) {
-    const envFile = fs.readFileSync(envPath, 'utf8');
-    envFile.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
-        const [key, ...valueParts] = trimmed.split('=');
-        const val = valueParts.join('=').trim().replace(/^["']|["']$/g, '');
-        if (key && !process.env[key.trim()]) {
-          process.env[key.trim()] = val;
-        }
-      }
-    });
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+    const [key, ...rest] = trimmed.split('=');
+    const val = rest.join('=').trim().replace(/^["']|["']$/g, '');
+    if (key && !process.env[key.trim()]) process.env[key.trim()] = val;
   }
 }
 
 loadEnv();
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '';
+// ─────────────────────────────────────────────
+// 2. VALIDA VARIÁVEIS DE AMBIENTE
+// ─────────────────────────────────────────────
+const APIFY_TOKEN     = process.env.APIFY_TOKEN || '';
+const SUPABASE_URL    = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_KEY    = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
-const isConfigured = Boolean(
-  supabaseUrl && 
-  supabaseAnonKey && 
-  !supabaseUrl.includes('your-project-id')
-);
+const missingVars = [];
+if (!APIFY_TOKEN)                          missingVars.push('APIFY_TOKEN');
+if (!SUPABASE_URL || SUPABASE_URL.includes('your-project-id')) missingVars.push('VITE_SUPABASE_URL');
+if (!SUPABASE_KEY)                         missingVars.push('VITE_SUPABASE_ANON_KEY');
 
-const KEYWORDS = [
+if (missingVars.length > 0) {
+  console.error('\n❌ ERRO: Variáveis de ambiente ausentes no arquivo .env:');
+  missingVars.forEach(v => console.error(`   • ${v}`));
+  console.error('\nCrie ou complete o arquivo .env na raiz do projeto e tente novamente.\n');
+  process.exit(1);
+}
+
+// ─────────────────────────────────────────────
+// 3. CONFIGURAÇÃO DO GARIMPO
+// ─────────────────────────────────────────────
+// Actor do Mercado Livre Brasil na Apify Store.
+// Página pública: https://apify.com/karamelo/mercadolivre-scraper-brasil-portugues
+const APIFY_ACTOR_ID = 'karamelo/mercadolivre-scraper-brasil-portugues';
+
+// Termos de busca com alta taxa de descontos reais
+const SEARCH_KEYWORDS = [
   'mop giratorio',
   'lixeira inox sensor',
   'escorredor louca inox',
@@ -45,151 +67,116 @@ const KEYWORDS = [
   'kit potes hermeticos'
 ];
 
-function getHighResImageUrl(thumbnailUrl) {
-  if (!thumbnailUrl) return '';
-  return thumbnailUrl
+// ─────────────────────────────────────────────
+// 4. HELPERS
+// ─────────────────────────────────────────────
+function getHighResImageUrl(url = '') {
+  return url
     .replace(/-I\.jpg$/i, '-O.jpg')
     .replace(/-I\.webp$/i, '-O.webp')
-    .replace('http://', 'https://');
+    .replace(/^http:\/\//i, 'https://');
 }
 
-function generatePersuasiveCopy(title, originalPrice, discountPrice, discountPercentage, originalLink) {
-  const formatBRL = (val) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
-
-  return `🔥 ACHADO INCRÍVEL DO MERCADO LIVRE!
-${title}
-
-✨ Destaques do Garimpo:
-• Produto altamente recomendado e campeão de vendas
-• Qualidade garantida com preço de oportunidade no ML
-• Entrega rápida e compra 100% segura
-
-❌ De ${formatBRL(originalPrice)}
-✅ Por apenas ${formatBRL(discountPrice)} (-${discountPercentage}% OFF) 🚨
-
-👇 CONFIRA O PRODUTO NO LINK:
-${originalLink}`;
+function formatBRL(val) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 }
 
+function generateCopy(title, originalPrice, discountPrice, discountPct, link) {
+  return `🔥 ACHADO INCRÍVEL DO MERCADO LIVRE!\n${title}\n\n✨ Destaques do Garimpo:\n• Produto campeão de vendas e altamente avaliado\n• Qualidade garantida com preço de oportunidade no ML\n• Entrega rápida e compra 100% segura\n\n❌ De ${formatBRL(originalPrice)}\n✅ Por apenas ${formatBRL(discountPrice)} (-${discountPct}% OFF) 🚨\n\n👇 CONFIRA O PRODUTO:\n${link}`;
+}
+
+// ─────────────────────────────────────────────
+// 5. MAIN
+// ─────────────────────────────────────────────
 async function runGarimpoWorker() {
-  console.log('\n==================================================');
-  console.log('🚀 INICIANDO WORKER LOCAL DE GARIMPO (YGA)');
-  console.log('==================================================');
+  console.log('\n════════════════════════════════════════════════');
+  console.log('  🚀  YGA WORKER — Garimpo via Apify + Supabase');
+  console.log('════════════════════════════════════════════════\n');
 
-  if (!isConfigured) {
-    console.warn('\n⚠️ ATENÇÃO: Credenciais do Supabase não encontradas no arquivo .env!');
-    console.warn('   Crie o arquivo .env na raiz do projeto com:');
-    console.warn('   VITE_SUPABASE_URL=https://seu-projeto.supabase.co');
-    console.warn('   VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui\n');
-    console.warn('   Executando varredura no terminal...\n');
-  }
+  const apify    = new ApifyClient({ token: APIFY_TOKEN });
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  let totalItemsFound = 0;
-  let allFormattedProducts = [];
+  const allProducts = [];
 
-  for (const queryTerm of KEYWORDS) {
+  for (const keyword of SEARCH_KEYWORDS) {
+    console.log(`🔍  Garimpando: "${keyword}"...`);
+
     try {
-      console.log(`🔍 Buscando na API pública do Mercado Livre: "${queryTerm}"...`);
-      const mlApiUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(queryTerm)}&limit=50`;
-      
-      const response = await fetch(mlApiUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json'
-        }
+      // Dispara o Actor e aguarda conclusão
+      const run = await apify.actor(APIFY_ACTOR_ID).call({
+        keyword,       // termo de busca
+        maxPages: 1    // 1 página = ~50 produtos
       });
 
-      if (!response.ok) {
-        console.error(`⚠️ Erro ao consultar "${queryTerm}": Status HTTP ${response.status}`);
-        continue;
+      // Lê os itens do dataset gerado
+      const { items } = await apify.dataset(run.defaultDatasetId).listItems();
+
+      // Filtra apenas ofertas com desconto real
+      const discounted = items.filter(item => {
+        const price    = Number(item.price         ?? item.currentPrice ?? 0);
+        const original = Number(item.originalPrice ?? item.priceBeforeDiscount ?? 0);
+        return original > 0 && price > 0 && price < original;
+      });
+
+      console.log(`   ➜ ${items.length} produtos retornados, ${discounted.length} com desconto real aprovado.`);
+
+      for (const item of discounted) {
+        const price    = Number(item.price         ?? item.currentPrice);
+        const original = Number(item.originalPrice ?? item.priceBeforeDiscount);
+        const pct      = Math.round(((original - price) / original) * 100);
+        const image    = getHighResImageUrl(item.imageUrl ?? item.thumbnail ?? '');
+        const link     = item.url ?? item.permalink ?? '';
+        const title    = item.title ?? item.name ?? 'Produto sem título';
+
+        allProducts.push({
+          ml_id:               item.id ?? item.mlId ?? `apify-${Date.now()}-${Math.random()}`,
+          title,
+          original_price:      original,
+          discount_price:      price,
+          discount_percentage: pct,
+          copy_text:           generateCopy(title, original, price, pct, link),
+          affiliate_link:      link,
+          category:            'Utilidades do Lar',
+          image_url:           image,
+          status:              'pending',
+          created_at:          new Date().toISOString()
+        });
       }
-
-      const data = await response.json();
-      const results = data.results || [];
-      totalItemsFound += results.length;
-
-      // Filtro de Desconto Real (price < original_price)
-      const discountedItems = results.filter(
-        item => item.original_price && Number(item.price) < Number(item.original_price)
-      );
-
-      console.log(`   ➜ ${results.length} produtos analisados, ${discountedItems.length} com desconto real aprovado.`);
-
-      const formatted = discountedItems.map(item => {
-        const originalPrice = Number(item.original_price);
-        const discountPrice = Number(item.price);
-        const discountPercentage = Math.round(
-          ((originalPrice - discountPrice) / originalPrice) * 100
-        );
-        const imageUrl = getHighResImageUrl(item.thumbnail);
-        const originalLink = item.permalink;
-        const copyText = generatePersuasiveCopy(
-          item.title,
-          originalPrice,
-          discountPrice,
-          discountPercentage,
-          originalLink
-        );
-
-        return {
-          ml_id: item.id,
-          title: item.title,
-          original_price: originalPrice,
-          discount_price: discountPrice,
-          discount_percentage: discountPercentage,
-          copy_text: copyText,
-          affiliate_link: originalLink,
-          category: 'Utilidades do Lar',
-          image_url: imageUrl,
-          status: 'pending',
-          created_at: new Date().toISOString()
-        };
-      });
-
-      allFormattedProducts.push(...formatted);
     } catch (err) {
-      console.error(`❌ Erro ao processar "${queryTerm}":`, err.message);
+      console.error(`   ❌ Erro ao processar "${keyword}":`, err.message);
     }
   }
 
-  if (allFormattedProducts.length === 0) {
-    console.warn('\n⚠️ Nenhuma oferta com desconto real encontrada nesta rodada.');
+  // Deduplica por ml_id
+  const uniqueMap = new Map();
+  allProducts.forEach(p => uniqueMap.set(p.ml_id, p));
+  const finalList = Array.from(uniqueMap.values());
+
+  if (finalList.length === 0) {
+    console.warn('\n⚠️  Nenhuma oferta com desconto real encontrada. Nada foi gravado.\n');
     return;
   }
 
-  // Eliminar duplicatas por ml_id
-  const uniqueProductsMap = new Map();
-  allFormattedProducts.forEach(p => uniqueProductsMap.set(p.ml_id, p));
-  const finalProducts = Array.from(uniqueProductsMap.values());
+  // Ordena por maior desconto para exibição no log
+  finalList.sort((a, b) => b.discount_percentage - a.discount_percentage);
 
-  console.log(`\n✅ Garimpo concluído! ${finalProducts.length} ofertas exclusivas com desconto encontradas.`);
+  console.log(`\n💾  Gravando ${finalList.length} ofertas no Supabase...`);
 
-  if (isConfigured) {
-    console.log(`💾 Persistindo ${finalProducts.length} ofertas no Supabase...`);
-    try {
-      const supabase = createClient(supabaseUrl, supabaseAnonKey);
-      const { error } = await supabase
-        .from('products')
-        .upsert(finalProducts, { onConflict: 'ml_id' });
+  const { error } = await supabase
+    .from('products')
+    .upsert(finalList, { onConflict: 'ml_id' });
 
-      if (error) {
-        console.error('❌ ERRO AO GRAVAR NO SUPABASE:', error.message, error.details);
-      } else {
-        console.log('\n==================================================');
-        console.log('🎉 BANCO SUPABASE ATUALIZADO COM SUCESSO!');
-        console.log(`• Total de itens analisados: ${totalItemsFound}`);
-        console.log(`• Ofertas gravadas: ${finalProducts.length}`);
-        console.log('==================================================\n');
-      }
-    } catch (sbErr) {
-      console.error('❌ EXCEÇÃO SUPABASE:', sbErr.message);
-    }
-  } else {
-    console.log('\nExemplo da primeira oferta garimpada:');
-    console.log(JSON.stringify(finalProducts[0], null, 2));
-    console.log('\n💡 Para gravar no Supabase real, configure seu .env e execute novamente `node garimpo-worker.js`!\n');
+  if (error) {
+    console.error('\n❌  ERRO no upsert do Supabase:', error.message, error.details ?? '');
+    return;
   }
+
+  console.log('\n════════════════════════════════════════════════');
+  console.log('  ✅  GARIMPO CONCLUÍDO COM SUCESSO!');
+  console.log(`  • Ofertas garimpadas e gravadas: ${finalList.length}`);
+  console.log(`  • Top desconto: ${finalList[0].title.slice(0, 50)}... (${finalList[0].discount_percentage}% OFF)`);
+  console.log('  • Abra o painel e clique em "🔄 Atualizar Tela" para ver os cards.');
+  console.log('════════════════════════════════════════════════\n');
 }
 
 runGarimpoWorker();
