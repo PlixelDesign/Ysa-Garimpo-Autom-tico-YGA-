@@ -59,33 +59,33 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="font-semibold text-slate-900 flex items-center gap-1">
               {isUsingSupabase ? (
                 <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Supabase Realtime
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Supabase Synchronized
                 </>
               ) : (
                 <>
-                  <Zap className="w-3.5 h-3.5 text-amber-500" /> API Garimpo Ativa
+                  <Zap className="w-3.5 h-3.5 text-amber-500" /> Modo Leitura Ativo
                 </>
               )}
             </span>
           </div>
 
-          {/* Direita: Botão Discreto de Buscar Ofertas ML + Dropdown de Categorias */}
+          {/* Direita: Botão '🔄 Atualizar Tela' + Dropdown de Categorias */}
           <div className="flex items-center gap-2.5">
             
-            {/* Botão Discreto: Buscar Novas Ofertas ML */}
+            {/* Botão Refetch Supabase */}
             <button
               id="btn-fetch-ml-offers"
               onClick={onFetchMLOffers}
               disabled={isFetchingML}
-              className={`px-3 py-2 text-xs font-bold rounded-lg border transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 ${
+              className={`px-3.5 py-2 text-xs font-bold rounded-lg border transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 ${
                 isFetchingML
                   ? 'bg-amber-100 text-amber-900 border-amber-300 opacity-80 cursor-not-allowed'
                   : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-200 hover:border-slate-300'
               }`}
-              title="Disparar busca na API do Mercado Livre para garimpar descontos reais"
+              title="Recarregar produtos gravados na tabela products do Supabase"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-amber-600 ${isFetchingML ? 'animate-spin' : ''}`} />
-              <span>{isFetchingML ? 'Garimpando ML...' : '🔄 Buscar Novas Ofertas ML'}</span>
+              <span>{isFetchingML ? 'Sincronizando...' : '🔄 Atualizar Tela'}</span>
             </button>
 
             {/* Dropdown de Filtro de Categorias */}

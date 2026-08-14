@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Product, FilterCategoryType, MetricSummary, ProductStatus } from '../types/product';
 import { isSupabaseConfigured, fetchProductsFromSupabase, updateProductStatusInSupabase } from '../services/supabase';
-import { fetchRealMercadoLivreOffers } from '../services/mlSearchService';
 import confetti from 'canvas-confetti';
 
 export interface ToastState {
@@ -12,7 +11,6 @@ export interface ToastState {
 }
 
 export function useProducts() {
-  // Estado inicial 100% limpo sem dados fictícios (Mock Purge)
   const [products, setProducts] = useState<Product[]>([]);
   const [activeTab, setActiveTab] = useState<'radar' | 'history'>('radar');
   const [selectedCategory, setSelectedCategory] = useState<FilterCategoryType>('Todas');
@@ -22,21 +20,26 @@ export function useProducts() {
   const [isFetchingML, setIsFetchingML] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({ id: 0, show: false, message: '' });
 
-  // Carrega os produtos salvos no Supabase na inicialização
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      if (isSupabaseConfigured()) {
-        const data = await fetchProductsFromSupabase();
-        if (data) {
-          setProducts(data);
-          setIsUsingSupabase(true);
-        }
+  // Busca inicial dos produtos gravados no Supabase
+  const loadData = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setIsFetchingML(true);
+    else setLoading(true);
+
+    if (isSupabaseConfigured()) {
+      const data = await fetchProductsFromSupabase();
+      if (data) {
+        setProducts(data);
+        setIsUsingSupabase(true);
       }
-      setLoading(false);
     }
-    loadData();
+
+    setLoading(false);
+    setIsFetchingML(false);
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Exibir notificação Toast com fechamento automático
   const showToastNotification = useCallback((message: string, subtext?: string) => {
@@ -52,64 +55,28 @@ export function useProducts() {
     setToast(prev => ({ ...prev, show: false }));
   }, []);
 
-  // Disparar garimpo manual Client-Side direto na API pública do ML (sem servidor backend)
+  // Recarregar os dados do Supabase (Refetch) ao clicar em '🔄 Atualizar Tela'
   const fetchNewMLOffers = useCallback(async () => {
     setIsFetchingML(true);
     showToastNotification(
-      'Garimpando Mercado Livre...',
-      'Buscando ofertas com desconto real diretamente no seu navegador.'
+      'Sincronizando com o Supabase...',
+      'Buscando ofertas garimpadas mais recentes do banco de dados.'
     );
 
-    try {
-      const newOffers = await fetchRealMercadoLivreOffers();
+    await loadData(true);
 
-      if (newOffers.length === 0) {
-        showToastNotification(
-          'Busca Concluída',
-          'Nenhuma oferta com desconto real foi encontrada no momento.'
-        );
-      } else {
-        // Se o Supabase estiver configurado, recarrega do banco para sincronizar o estado exato
-        if (isSupabaseConfigured()) {
-          const freshFromSupabase = await fetchProductsFromSupabase();
-          if (freshFromSupabase && freshFromSupabase.length > 0) {
-            setProducts(freshFromSupabase);
-          } else {
-            setProducts(prev => {
-              const existingIds = new Set(prev.map(p => p.mlId || p.id));
-              const filteredNew = newOffers.filter(p => !existingIds.has(p.mlId || p.id));
-              return [...filteredNew, ...prev];
-            });
-          }
-        } else {
-          setProducts(prev => {
-            const existingIds = new Set(prev.map(p => p.mlId || p.id));
-            const filteredNew = newOffers.filter(p => !existingIds.has(p.mlId || p.id));
-            return [...filteredNew, ...prev];
-          });
-        }
+    confetti({
+      particleCount: 40,
+      spread: 60,
+      origin: { y: 0.8 },
+      colors: ['#FFE600', '#F59E0B', '#10B981']
+    });
 
-        setActiveTab('radar');
-
-        confetti({
-          particleCount: 50,
-          spread: 70,
-          origin: { y: 0.8 },
-          colors: ['#FFE600', '#F59E0B', '#10B981']
-        });
-
-        showToastNotification(
-          `⚡ ${newOffers.length} Ofertas ML Garimpadas!`,
-          'Gravadas no Supabase e ordenadas por maior desconto no Radar do Dia.'
-        );
-      }
-    } catch (err) {
-      console.error('[Fetch ML Offers Error]:', err);
-      showToastNotification('Erro no Garimpo ML', 'Falha ao consultar a API do Mercado Livre.');
-    } finally {
-      setIsFetchingML(false);
-    }
-  }, [showToastNotification]);
+    showToastNotification(
+      '🔄 Painel Atualizado!',
+      'Tela sincronizada com as ofertas do banco de dados.'
+    );
+  }, [loadData, showToastNotification]);
 
   // Copiar Copy + Link para a área de transferência
   const copyProductData = useCallback(async (product: Product) => {

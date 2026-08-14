@@ -39,7 +39,7 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
       
-      {/* Cabeçalho Fixo com Logo, Botão Buscar Ofertas ML e Filtro de Categoria */}
+      {/* Cabeçalho Fixo com Logo, Botão Atualizar Tela e Filtro de Categoria */}
       <Header
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
@@ -54,7 +54,7 @@ export const App: React.FC = () => {
         {/* Barra de Métricas Chave */}
         <MetricStats metrics={metrics} />
 
-        {/* Banner de Boas-vindas / Ação de Garimpo se o radar estiver vazio */}
+        {/* Banner Informativo se o radar estiver vazio */}
         {radarProducts.length === 0 && !loading && (
           <div className="mb-6 p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-slate-100 border border-amber-300/60 shadow-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -63,10 +63,10 @@ export const App: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-sm font-bold text-slate-900">
-                  Radar do Dia Atualizado em Tempo Real
+                  Painel Sincronizado com o Supabase
                 </h2>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Clique no botão <strong className="text-slate-900">🔄 Buscar Novas Ofertas ML</strong> no topo para garimpar descontos de oportunidade na API do Mercado Livre e sincronizar no Supabase.
+                  Execute o worker local <code className="bg-amber-100/80 px-1 py-0.5 rounded font-mono text-amber-900">node garimpo-worker.js</code> no seu terminal para garimpar novas ofertas reais do Mercado Livre e gravar no banco.
                 </p>
               </div>
             </div>
@@ -77,25 +77,25 @@ export const App: React.FC = () => {
                 className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isFetchingML ? 'animate-spin' : ''}`} />
-                <span>{isFetchingML ? 'Garimpando ML...' : 'Iniciar Garimpo ML'}</span>
+                <span>{isFetchingML ? 'Sincronizando...' : 'Atualizar Tela'}</span>
               </button>
               <button
                 onClick={() => setShowSupabaseGuide(!showSupabaseGuide)}
                 className="text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 px-3 py-2 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <Info className="w-3.5 h-3.5 text-amber-600" />
-                <span>Status Supabase</span>
+                <span>Como Executar o Worker</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Guia Expansível de Conexão Supabase */}
+        {/* Guia Expansível sobre o Worker Local */}
         {showSupabaseGuide && (
           <div className="mb-6 p-5 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 text-xs font-mono shadow-xl animate-fade-in">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3 font-sans">
               <h3 className="font-bold text-amber-400 text-sm flex items-center gap-2">
-                ⚡ Status da Integração Supabase & Vercel
+                ⚡ Como Rodar o Worker Local de Garimpo
               </h3>
               <button
                 onClick={() => setShowSupabaseGuide(false)}
@@ -105,12 +105,12 @@ export const App: React.FC = () => {
               </button>
             </div>
             <p className="font-sans text-slate-300 mb-3 leading-relaxed">
-              O sistema lê e grava diretamente na tabela <code className="text-amber-300">products</code> do Supabase via Rota de API <code className="text-amber-300">api/search-ml.ts</code> e variáveis de ambiente na Vercel:
+              O garimpo de ofertas é executado via script autônomo <code className="text-amber-300">garimpo-worker.js</code> no seu computador/servidor, imune a bloqueios de WAF:
             </p>
             <ol className="list-decimal list-inside space-y-1.5 text-slate-300 font-mono bg-slate-950 p-3 rounded-lg border border-slate-800/80">
-              <li><code className="text-amber-400">VITE_SUPABASE_URL</code> (ou <code className="text-amber-400">SUPABASE_URL</code>) configurada no painel Vercel.</li>
-              <li><code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code> (ou <code className="text-amber-400">SUPABASE_ANON_KEY</code>) configurada no painel Vercel.</li>
-              <li>Status de Conexão Atual: <strong className={isUsingSupabase ? "text-emerald-400" : "text-amber-400"}>{isUsingSupabase ? "Conectado ao Supabase PostgreSQL" : "Aguardando variáveis na Vercel / Local"}</strong></li>
+              <li>Certifique-se de que as chaves <code className="text-amber-400">VITE_SUPABASE_URL</code> e <code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code> estão configuradas no <code className="text-amber-400">.env</code>.</li>
+              <li>No terminal da raiz do projeto, rode: <code className="text-amber-400">node garimpo-worker.js</code></li>
+              <li>O script varrerá 50 itens do Mercado Livre, filtrará os descontos reais e salvará diretamente no Supabase!</li>
             </ol>
           </div>
         )}
@@ -129,7 +129,7 @@ export const App: React.FC = () => {
         {loading ? (
           <div className="py-20 text-center text-slate-500">
             <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm font-semibold">Sincronizando produtos do garimpo...</p>
+            <p className="text-sm font-semibold">Carregando produtos do banco Supabase...</p>
           </div>
         ) : activeTab === 'radar' ? (
           <RadarGrid
@@ -170,19 +170,19 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-900">Ysa Garimpo Automático (YGA)</span>
             <span>•</span>
-            <span>Motor de Garimpo Mercado Livre</span>
+            <span>Painel Read-Only Supabase</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-600">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> MLB API Realtime
+              <Database className="w-3.5 h-3.5 text-amber-500" /> Supabase Realtime Connected
             </span>
             <a
-              href="https://api.mercadolibre.com/sites/MLB/search?q=mop%20giratorio&limit=50"
+              href="https://mercadolivre.com.br"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-amber-600 flex items-center gap-1 transition-colors"
             >
-              API Mercado Livre <ArrowUpRight className="w-3 h-3" />
+              Mercado Livre <ArrowUpRight className="w-3 h-3" />
             </a>
           </div>
         </div>
