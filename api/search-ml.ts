@@ -42,7 +42,7 @@ function getEnv(key: string): string {
   return '';
 }
 
-// Inicializa o cliente Supabase Serverless usando process.env
+// Inicializa o cliente Supabase Serverless
 function getSupabaseServerClient() {
   const url = getEnv('VITE_SUPABASE_URL');
   const key = getEnv('VITE_SUPABASE_ANON_KEY');
@@ -53,6 +53,55 @@ function getSupabaseServerClient() {
   }
 
   return createClient(url, key);
+}
+
+/**
+ * 1. Autenticação Oficial OAuth 2.0 com Mercado Livre Developers (Client Credentials)
+ */
+async function getMercadoLivreAccessToken(): Promise<string | null> {
+  const appId = getEnv('ML_APP_ID') || getEnv('VITE_ML_APP_ID');
+  const clientSecret = getEnv('ML_CLIENT_SECRET') || getEnv('VITE_ML_CLIENT_SECRET');
+
+  if (!appId || !clientSecret) {
+    console.warn('[ML OAuth Warning] ML_APP_ID ou ML_CLIENT_SECRET não configurados nas variáveis da Vercel. Tentando requisição não autenticada...');
+    return null;
+  }
+
+  try {
+    console.log('[ML OAuth] Solicitando access_token oficial em https://api.mercadolibre.com/oauth/token...');
+    
+    const params = new URLSearchParams();
+    params.append('grant_type', 'client_credentials');
+    params.append('client_id', appId);
+    params.append('client_secret', clientSecret);
+
+    const tokenResponse = await fetch('https://api.mercadolibre.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: params.toString()
+    });
+
+    if (!tokenResponse.ok) {
+      const errBody = await tokenResponse.text();
+      console.error(`[ML OAuth Error] Falha na autenticação (Status ${tokenResponse.status}): ${errBody}`);
+      return null;
+    }
+
+    const tokenData = await tokenResponse.json();
+    if (tokenData.access_token) {
+      console.log('[ML OAuth] ✅ Token obtido com sucesso!');
+      return tokenData.access_token;
+    } else {
+      console.error('[ML OAuth Error] Resposta sem access_token:', tokenData);
+      return null;
+    }
+  } catch (oauthErr: any) {
+    console.error('[ML OAuth Exception] Exceção ao obter token:', oauthErr.message || oauthErr);
+    return null;
+  }
 }
 
 /**
@@ -67,7 +116,7 @@ export function getHighResImageUrl(thumbnailUrl: string): string {
 }
 
 /**
- * Gera Copy Persuasiva usando o link original real do Mercado Livre
+ * Gera Copy Persuasiva usando a URL original do produto no Mercado Livre
  */
 export function generatePersuasiveCopy(
   title: string,
@@ -95,7 +144,7 @@ ${originalLink}`;
 }
 
 /**
- * Lógica principal da Rota de API do Servidor (Fetch ML + Supabase Upsert com Tracing Robusto)
+ * Lógica principal da Rota de API do Servidor (OAuth Token + ML Search + Supabase Upsert)
  */
 export async function handleSearchMLOffers(requestedQuery?: string) {
   const queryTerm = requestedQuery || 
@@ -103,13 +152,25 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
 
   console.log(`[Search ML API] Iniciando busca com termo: "${queryTerm}"...`);
 
+  // 1. Obter Access Token Oficial do Mercado Livre
+  const accessToken = await getMercadoLivreAccessToken();
+
   let discountedItems: MLRawItem[] = [];
   let rawResults: MLRawItem[] = [];
 
-  // 1. Fetch na API do Mercado Livre com Rastreio de Erros
+  // 2. GET em https://api.mercadolibre.com/sites/MLB/search com Authorization Header
   try {
     const mlApiUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(queryTerm)}&limit=50`;
-    const response = await fetch(mlApiUrl);
+    const headers: Record<string, string> = {
+      'Accept': 'application/json'
+    };
+
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    console.log(`[Search ML API] Fetching ${mlApiUrl} com ${accessToken ? 'Authorization: Bearer <token>' : 'sem token'}...`);
+    const response = await fetch(mlApiUrl, { headers });
 
     if (!response.ok) {
       const errText = await response.text();
@@ -120,18 +181,18 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
     const data = await response.json();
     rawResults = data.results || [];
 
-    // Filtrar apenas se original_price existe e for maior que price
+    // Filtrar apenas itens com desconto real (original_price && price < original_price)
     discountedItems = rawResults.filter(
       item => item.original_price && Number(item.price) < Number(item.original_price)
     );
 
     console.log(`[Search ML API] "${queryTerm}": ${rawResults.length} itens encontrados, ${discountedItems.length} com desconto real.`);
 
-    // Fallback se o termo sorteado tiver menos de 3 descontos
+    // Fallback com 'mop giratorio' se houver poucos descontos
     if (discountedItems.length < 3 && queryTerm !== 'mop giratorio') {
       console.log('[Search ML API] Descontos insuficientes. Executando fallback com "mop giratorio"...');
       const fallbackUrl = `https://api.mercadolibre.com/sites/MLB/search?q=mop%20giratorio&limit=50`;
-      const fbRes = await fetch(fallbackUrl);
+      const fbRes = await fetch(fallbackUrl, { headers });
       if (fbRes.ok) {
         const fbData = await fbRes.json();
         const fbResults: MLRawItem[] = fbData.results || [];
@@ -145,7 +206,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
     console.error('[ML Fetch Exception] Erro crítico ao conectar na API do Mercado Livre:', mlErr.message || mlErr);
     return {
       success: false,
-      error: `Erro de comunicação com o Mercado Livre: ${mlErr.message}`
+      error: `Erro de comunicação com a API do Mercado Livre: ${mlErr.message}`
     };
   }
 
@@ -156,11 +217,12 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       query_used: queryTerm,
       total_found: rawResults.length,
       discounted_count: 0,
+      authenticated: Boolean(accessToken),
       products: []
     };
   }
 
-  // 2. Mapeamento de dados sem fakes ou mocks
+  // 3. Mapeamento de dados sem fakes
   const formattedProducts = discountedItems.map(item => {
     const originalPrice = Number(item.original_price);
     const discountPrice = Number(item.price);
@@ -168,7 +230,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       ((originalPrice - discountPrice) / originalPrice) * 100
     );
     const imageUrl = getHighResImageUrl(item.thumbnail);
-    const originalLink = item.permalink; // Link original real do Mercado Livre
+    const originalLink = item.permalink;
     const copyText = generatePersuasiveCopy(
       item.title,
       originalPrice,
@@ -184,7 +246,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       discount_price: discountPrice,
       discount_percentage: discountPercentage,
       copy_text: copyText,
-      affiliate_link: originalLink, // Salva o link original
+      affiliate_link: originalLink, // Salva a URL original
       category: 'Utilidades do Lar',
       image_url: imageUrl,
       status: 'pending',
@@ -195,7 +257,7 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
   // Ordenar do maior para o menor desconto (%)
   formattedProducts.sort((a, b) => b.discount_percentage - a.discount_percentage);
 
-  // 3. Upsert no Supabase usando o cliente Serverless inicializado com process.env
+  // 4. Upsert no Supabase usando o cliente Serverless
   const supabaseServer = getSupabaseServerClient();
   let supabaseUpsertSuccess = false;
   let supabaseErrorMsg = null;
@@ -218,13 +280,12 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
       supabaseErrorMsg = sbErr.message;
       console.error('[Supabase Upsert Exception] Exceção ao gravar no banco:', sbErr);
     }
-  } else {
-    console.warn('[Supabase Server] Upsert ignorado pois as credenciais VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY não foram encontradas em process.env.');
   }
 
   return {
     success: true,
     query_used: queryTerm,
+    authenticated: Boolean(accessToken),
     total_found: rawResults.length,
     discounted_count: formattedProducts.length,
     supabase_persisted: supabaseUpsertSuccess,
@@ -235,7 +296,6 @@ export async function handleSearchMLOffers(requestedQuery?: string) {
 
 // Handler HTTP Serverless para Vercel Functions
 export default async function handler(req: any, res: any) {
-  // CORS Preflight
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
