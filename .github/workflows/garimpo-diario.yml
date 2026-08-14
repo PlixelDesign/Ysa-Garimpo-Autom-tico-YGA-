@@ -1,0 +1,38 @@
+name: Garimpo Diário de Ofertas Mercado Livre (YGA)
+
+# Execução automática diária às 07:00 UTC + Gatilho Manual
+on:
+  schedule:
+    # Rodar todos os dias às 07:00 UTC (04:00 Horário de Brasília)
+    - cron: '0 7 * * *'
+  # Permite disparar o workflow manualmente pela aba Actions do GitHub
+  workflow_dispatch:
+
+jobs:
+  executar-garimpo-ml:
+    name: Garimpar Novas Ofertas ML & Atualizar Supabase
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Disparar Rota de API do Motor de Garimpo
+        run: |
+          echo "🚀 Iniciando varredura automatizada de ofertas no Mercado Livre..."
+          
+          # =========================================================================
+          # ATENÇÃO IMPORTANTE PARA O DEPLOY FINAL:
+          # Substitua a URL abaixo ('https://sua-app-ysa-garimpo.vercel.app/api/search-ml')
+          # pelo domínio real em produção da sua aplicação (ex: Vercel, Netlify ou servidor próprio).
+          # =========================================================================
+          API_URL="https://sua-app-ysa-garimpo.vercel.app/api/search-ml"
+          
+          # Caso queira disparar localmente ou via webhook customizado, altere a URL ou passe via GitHub Secret.
+          RESPONSE=$(curl -s -X POST "$API_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"q": "organizador cozinha"}')
+          
+          echo "Resposta do Servidor:"
+          echo "$RESPONSE"
+          echo "✅ Garimpo automático executado com sucesso!"

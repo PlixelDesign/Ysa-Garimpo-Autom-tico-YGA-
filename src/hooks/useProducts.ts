@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Product, FilterCategoryType, MetricSummary, ProductStatus } from '../types/product';
 import { INITIAL_MOCK_PRODUCTS } from '../data/mockProducts';
 import { isSupabaseConfigured, fetchProductsFromSupabase, updateProductStatusInSupabase } from '../services/supabase';
+import { fetchRealMercadoLivreOffers } from '../services/mlSearchService';
 import confetti from 'canvas-confetti';
 
 export interface ToastState {
@@ -18,6 +19,7 @@ export function useProducts() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isUsingSupabase, setIsUsingSupabase] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [isFetchingML, setIsFetchingML] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({ id: 0, show: false, message: '' });
 
   // Tenta carregar dados do Supabase se estiver configurado
@@ -50,6 +52,54 @@ export function useProducts() {
     setToast(prev => ({ ...prev, show: false }));
   }, []);
 
+  // Disparar busca manual de novas ofertas reais do Mercado Livre
+  const fetchNewMLOffers = useCallback(async () => {
+    setIsFetchingML(true);
+    showToastNotification(
+      'Conectando ao Mercado Livre...',
+      'Buscando produtos com desconto real de original_price > price.'
+    );
+
+    try {
+      const newOffers = await fetchRealMercadoLivreOffers('organizador cozinha');
+
+      if (newOffers.length === 0) {
+        showToastNotification(
+          'Busca Concluída',
+          'Nenhuma nova oferta com desconto foi encontrada no momento.'
+        );
+      } else {
+        // Mesclar novos produtos evitando duplicatas por mlId ou id
+        setProducts(prev => {
+          const existingIds = new Set(prev.map(p => p.mlId || p.id));
+          const filteredNew = newOffers.filter(p => !existingIds.has(p.mlId || p.id));
+          return [...filteredNew, ...prev];
+        });
+
+        // Garantir que a visualização mude para a aba Radar do Dia
+        setActiveTab('radar');
+
+        // Efeito comemorativo de Confetti
+        confetti({
+          particleCount: 50,
+          spread: 70,
+          origin: { y: 0.8 },
+          colors: ['#FFE600', '#F59E0B', '#10B981']
+        });
+
+        showToastNotification(
+          `⚡ ${newOffers.length} Novas Ofertas ML Garimpadas!`,
+          'Produtos adicionados e ordenados por maior desconto no Radar do Dia.'
+        );
+      }
+    } catch (err) {
+      console.error('[Fetch ML Offers Error]:', err);
+      showToastNotification('Erro no Garimpo ML', 'Falha ao consultar a API do Mercado Livre.');
+    } finally {
+      setIsFetchingML(false);
+    }
+  }, [showToastNotification]);
+
   // Copiar Copy + Link para a área de transferência com feedback tátil e confetti
   const copyProductData = useCallback(async (product: Product) => {
     const textToCopy = `${product.copyText}\n\n🛒 Link de Compra: ${product.affiliateLink}`;
@@ -58,7 +108,6 @@ export function useProducts() {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(textToCopy);
       } else {
-        // Fallback para navegadores antigos
         const textArea = document.createElement('textarea');
         textArea.value = textToCopy;
         document.body.appendChild(textArea);
@@ -67,7 +116,6 @@ export function useProducts() {
         document.body.removeChild(textArea);
       }
 
-      // Efeito festivo sutil de Confetti para dar dopamina/delight na velocidade de uso!
       confetti({
         particleCount: 40,
         spread: 60,
@@ -91,7 +139,6 @@ export function useProducts() {
   const markAsPublished = useCallback(async (productId: string) => {
     const nowIso = new Date().toISOString();
 
-    // Atualização otimista da UI
     setProducts(prevProducts =>
       prevProducts.map(p =>
         p.id === productId
@@ -105,7 +152,6 @@ export function useProducts() {
       'Status alterado para Publicado com sucesso.'
     );
 
-    // Se houver Supabase conectado, sincroniza em background
     if (isUsingSupabase) {
       await updateProductStatusInSupabase(productId, 'published');
     }
@@ -173,7 +219,7 @@ export function useProducts() {
       .sort((a, b) => {
         const dateA = new Date(a.publishedAt || 0).getTime();
         const dateB = new Date(b.publishedAt || 0).getTime();
-        return dateB - dateA; // Mais recentes primeiro
+        return dateB - dateA;
       });
   }, [products, selectedCategory, searchQuery]);
 
@@ -213,7 +259,9 @@ export function useProducts() {
     setSearchQuery,
     metrics,
     loading,
+    isFetchingML,
     isUsingSupabase,
+    fetchNewMLOffers,
     copyProductData,
     markAsPublished,
     restoreToRadar,

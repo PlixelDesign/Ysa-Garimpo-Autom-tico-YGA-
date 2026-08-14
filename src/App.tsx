@@ -22,7 +22,9 @@ export const App: React.FC = () => {
     setSearchQuery,
     metrics,
     loading,
+    isFetchingML,
     isUsingSupabase,
+    fetchNewMLOffers,
     copyProductData,
     markAsPublished,
     restoreToRadar,
@@ -37,11 +39,13 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
       
-      {/* Cabeçalho Fixo com Logo e Filtro de Categoria */}
+      {/* Cabeçalho Fixo com Logo, Botão Buscar Ofertas ML e Filtro de Categoria */}
       <Header
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
         isUsingSupabase={isUsingSupabase}
+        onFetchMLOffers={fetchNewMLOffers}
+        isFetchingML={isFetchingML}
       />
 
       {/* Conteúdo Principal */}
@@ -59,10 +63,10 @@ export const App: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  Exibindo Dados Garimpados (Mock Realista ML)
+                  Exibindo Dados Garimpados (Integração API ML Ativa)
                 </h2>
                 <p className="text-xs text-slate-600">
-                  Pronto para conectar ao Supabase PostgreSQL com 1 clique! Insira as credenciais no arquivo <code className="bg-amber-100/80 px-1 py-0.5 rounded font-mono text-amber-900">.env</code>.
+                  Clique no botão <strong className="text-slate-900">🔄 Buscar Novas Ofertas ML</strong> no cabeçalho para garimpar descontos em tempo real da API do Mercado Livre!
                 </p>
               </div>
             </div>
@@ -81,7 +85,7 @@ export const App: React.FC = () => {
           <div className="mb-6 p-5 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 text-xs font-mono shadow-xl animate-fade-in">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3 font-sans">
               <h3 className="font-bold text-amber-400 text-sm flex items-center gap-2">
-                ⚡ Como Injetar a Chamada da API Supabase
+                ⚡ Como Injetar a Chamada da API Supabase & GitHub Actions
               </h3>
               <button
                 onClick={() => setShowSupabaseGuide(false)}
@@ -91,12 +95,12 @@ export const App: React.FC = () => {
               </button>
             </div>
             <p className="font-sans text-slate-300 mb-3 leading-relaxed">
-              O projeto já possui as funções prontas e abstraídas em <code className="text-amber-300">src/services/supabase.ts</code> e no hook <code className="text-amber-300">src/hooks/useProducts.ts</code>. Para conectar seu banco real:
+              O projeto possui a Rota de API em <code className="text-amber-300">api/search-ml.ts</code> e a automação do GitHub Actions em <code className="text-amber-300">.github/workflows/garimpo-diario.yml</code>. Para conectar seu banco real:
             </p>
             <ol className="list-decimal list-inside space-y-1.5 text-slate-300 font-mono bg-slate-950 p-3 rounded-lg border border-slate-800/80">
               <li>Crie um arquivo <code className="text-amber-400">.env</code> na raiz do projeto baseado no <code className="text-amber-400">.env.example</code>.</li>
               <li>Adicione sua <code className="text-amber-400">VITE_SUPABASE_URL</code> e <code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code>.</li>
-              <li>Crie a tabela <code className="text-amber-400">products</code> no Supabase utilizando o SQL fornecido no arquivo <code className="text-amber-400">src/services/supabase.ts</code>.</li>
+              <li>No GitHub Actions, atualize a URL de produção no arquivo <code className="text-amber-400">.github/workflows/garimpo-diario.yml</code>.</li>
             </ol>
           </div>
         )}
@@ -156,14 +160,14 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-900">Ysa Garimpo Automático (YGA)</span>
             <span>•</span>
-            <span>Back-Office de Afiliados Mercado Livre</span>
+            <span>Motor de Garimpo Híbrido Mercado Livre</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-600">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Instagram MLabs Optimized
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> API MLB Search Ready
             </span>
             <a
-              href="https://mercadolivre.com.br"
+              href="https://api.mercadolibre.com/sites/MLB/search?q=organizador%20cozinha&limit=20"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-amber-600 flex items-center gap-1 transition-colors"
