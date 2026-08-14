@@ -2,10 +2,10 @@ import { Product } from '../types/product';
 import { handleSearchMLOffers } from '../../api/search-ml';
 
 export async function fetchRealMercadoLivreOffers(
-  searchQuery: string = 'organizador cozinha'
+  searchQuery?: string
 ): Promise<Product[]> {
   try {
-    // 1. Tenta chamar a API route local ou remota
+    // Busca na Rota de API (com amostragem de 50 itens e filtro rigoroso de original_price)
     const result = await handleSearchMLOffers(searchQuery);
 
     if (!result.success || !result.products || result.products.length === 0) {
@@ -13,7 +13,7 @@ export async function fetchRealMercadoLivreOffers(
       return [];
     }
 
-    // 2. Mapeia a resposta para a interface Product do TypeScript
+    // Mapeia para a interface Product do TypeScript
     const mappedProducts: Product[] = result.products.map((item: any, idx: number) => ({
       id: item.ml_id || `ml-fetched-${Date.now()}-${idx}`,
       title: item.title,
@@ -31,7 +31,7 @@ export async function fetchRealMercadoLivreOffers(
       mlId: item.ml_id
     }));
 
-    // 3. Garante a ordenação por maior desconto (%)
+    // Garante a ordenação por maior desconto (%)
     return mappedProducts.sort((a, b) => b.discountPercentage - a.discountPercentage);
   } catch (error) {
     console.error('[ML Search Service Error]:', error);
