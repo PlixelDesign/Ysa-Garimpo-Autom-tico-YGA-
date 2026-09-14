@@ -1,0 +1,36 @@
+name: 🔍 Garimpo Diário YGA
+
+on:
+  schedule:
+    - cron: '0 11,17,23 * * *'  # 8h, 14h, 20h horário de Brasília (UTC-3)
+  workflow_dispatch:              # permite rodar manualmente pelo GitHub
+
+jobs:
+  garimpar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Instala dependências
+        run: npm ci
+
+      - name: 🌐 Instala Playwright + Chromium com dependências
+        run: npx playwright install chromium --with-deps
+
+      - name: 🔐 Restaura sessão do Mercado Livre
+        run: echo '${{ secrets.ML_SESSION }}' > ml-session.json
+
+      - name: 🚀 Roda o Worker com display virtual (xvfb)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CI: true
+        run: xvfb-run --auto-servernum -- node garimpo-worker.js

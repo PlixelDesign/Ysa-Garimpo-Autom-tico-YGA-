@@ -1,27 +1,29 @@
 /**
- * Ysa Garimpo Automático (YGA) — Worker Local com Apify
+ * Ysa Garimpo Automático (YGA) — Worker com Network Interception
  *
- * Execução: node garimpo-worker.js
+ * GRATUITO. Usa Playwright + sessão ML + interceptação de rede.
+ * Funciona local ou no GitHub Actions (xvfb fornece display virtual).
  *
- * Requisitos no .env:
- *   APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxx
- *   VITE_SUPABASE_URL=https://seu-projeto.supabase.co
- *   VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui
+ * Local:          node garimpo-worker.js
+ * GitHub Actions: automático via .github/workflows/garimpo.yml
+ *
+ * .env necessário:
+ *   VITE_SUPABASE_URL=...
+ *   VITE_SUPABASE_ANON_KEY=...
  */
 
 import fs from 'fs';
 import path from 'path';
-import { ApifyClient } from 'apify-client';
+import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 
 // ─────────────────────────────────────────────
-// 1. CARREGA .env LOCAL
+// 1. CARREGA .env
 // ─────────────────────────────────────────────
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
-  const lines = fs.readFileSync(envPath, 'utf8').split('\n');
-  for (const line of lines) {
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
     const [key, ...rest] = trimmed.split('=');
@@ -29,154 +31,227 @@ function loadEnv() {
     if (key && !process.env[key.trim()]) process.env[key.trim()] = val;
   }
 }
-
 loadEnv();
 
 // ─────────────────────────────────────────────
-// 2. VALIDA VARIÁVEIS DE AMBIENTE
+// 2. VALIDA CONFIG
 // ─────────────────────────────────────────────
-const APIFY_TOKEN     = process.env.APIFY_TOKEN || '';
-const SUPABASE_URL    = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_KEY    = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '';
+const SESSION_PATH = path.resolve(process.cwd(), 'ml-session.json');
 
-const missingVars = [];
-if (!APIFY_TOKEN)                          missingVars.push('APIFY_TOKEN');
-if (!SUPABASE_URL || SUPABASE_URL.includes('your-project-id')) missingVars.push('VITE_SUPABASE_URL');
-if (!SUPABASE_KEY)                         missingVars.push('VITE_SUPABASE_ANON_KEY');
-
-if (missingVars.length > 0) {
-  console.error('\n❌ ERRO: Variáveis de ambiente ausentes no arquivo .env:');
-  missingVars.forEach(v => console.error(`   • ${v}`));
-  console.error('\nCrie ou complete o arquivo .env na raiz do projeto e tente novamente.\n');
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('\n❌ Faltam variáveis: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY\n');
+  process.exit(1);
+}
+if (!fs.existsSync(SESSION_PATH)) {
+  console.error('\n❌ Sessão não encontrada. Execute primeiro: node garimpo-login.js\n');
   process.exit(1);
 }
 
 // ─────────────────────────────────────────────
-// 3. CONFIGURAÇÃO DO GARIMPO
+// 3. CONFIGURAÇÃO
 // ─────────────────────────────────────────────
-// Actor do Mercado Livre Brasil na Apify Store.
-// Página pública: https://apify.com/karamelo/mercadolivre-scraper-brasil-portugues
-const APIFY_ACTOR_ID = 'karamelo/mercadolivre-scraper-brasil-portugues';
+const DESCONTO_MINIMO = 15;
 
-// Termos de busca com alta taxa de descontos reais
-const SEARCH_KEYWORDS = [
+// Rotação diária — 1 keyword/dia para economizar recursos
+const KEYWORDS = [
   'mop giratorio',
   'lixeira inox sensor',
   'escorredor louca inox',
   'organizador armario cozinha',
-  'kit potes hermeticos'
+  'kit potes hermeticos',
+  'dispenser sabao liquido',
+  'suporte papel toalha inox'
 ];
+
+// Aceita keyword forçada via argumento: node garimpo-worker.js "mop giratorio"
+const forcedKeyword = process.argv[2];
+const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+const todayKeyword = forcedKeyword || KEYWORDS[dayOfYear % KEYWORDS.length];
 
 // ─────────────────────────────────────────────
 // 4. HELPERS
 // ─────────────────────────────────────────────
-function getHighResImageUrl(url = '') {
-  return url
-    .replace(/-I\.jpg$/i, '-O.jpg')
-    .replace(/-I\.webp$/i, '-O.webp')
-    .replace(/^http:\/\//i, 'https://');
-}
-
 function formatBRL(val) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 }
 
-function generateCopy(title, originalPrice, discountPrice, discountPct, link) {
-  return `🔥 ACHADO INCRÍVEL DO MERCADO LIVRE!\n${title}\n\n✨ Destaques do Garimpo:\n• Produto campeão de vendas e altamente avaliado\n• Qualidade garantida com preço de oportunidade no ML\n• Entrega rápida e compra 100% segura\n\n❌ De ${formatBRL(originalPrice)}\n✅ Por apenas ${formatBRL(discountPrice)} (-${discountPct}% OFF) 🚨\n\n👇 CONFIRA O PRODUTO:\n${link}`;
+function generateCopy(title, original, discount, pct, link) {
+  return [
+    '🔥 ACHADO INCRÍVEL DO MERCADO LIVRE!',
+    title,
+    '',
+    '✨ Destaques do Garimpo:',
+    '• Produto campeão de vendas e altamente avaliado',
+    '• Qualidade garantida com preço de oportunidade no ML',
+    '• Entrega rápida e compra 100% segura',
+    '',
+    `❌ De ${formatBRL(original)}`,
+    `✅ Por apenas ${formatBRL(discount)} (-${pct}% OFF) 🚨`,
+    '',
+    '👇 CONFIRA O PRODUTO:',
+    link
+  ].join('\n');
+}
+
+function getHighRes(url = '') {
+  return url.replace(/-I\.jpg$/i, '-O.jpg').replace(/-I\.webp$/i, '-O.webp').replace(/^http:\/\//i, 'https://');
 }
 
 // ─────────────────────────────────────────────
-// 5. MAIN
+// 5. GARIMPO COM NETWORK INTERCEPTION
 // ─────────────────────────────────────────────
-async function runGarimpoWorker() {
-  console.log('\n════════════════════════════════════════════════');
-  console.log('  🚀  YGA WORKER — Garimpo via Apify + Supabase');
-  console.log('════════════════════════════════════════════════\n');
+async function garimparKeyword(context, keyword) {
+  const page = await context.newPage();
+  const produtos = [];
 
-  const apify    = new ApifyClient({ token: APIFY_TOKEN });
-  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  // Intercepta ANTES de navegar — captura o JSON que o frontend do ML busca
+  page.on('response', async (response) => {
+    const url    = response.url();
+    const status = response.status();
+    if (status !== 200) return;
 
-  const allProducts = [];
+    // Qualquer endpoint JSON do domínio mercadolibre
+    const isMlApi = url.includes('api.mercadolibre.com') || url.includes('api.mercadolivre.com');
+    if (!isMlApi) return;
 
-  for (const keyword of SEARCH_KEYWORDS) {
-    console.log(`🔍  Garimpando: "${keyword}"...`);
+    const ct = response.headers()['content-type'] || '';
+    if (!ct.includes('json')) return;
 
     try {
-      // Dispara o Actor e aguarda conclusão
-      const run = await apify.actor(APIFY_ACTOR_ID).call({
-        keyword,       // termo de busca
-        maxPages: 1    // 1 página = ~50 produtos
-      });
+      const data = await response.json();
+      const results = data?.results ?? [];
+      if (!results.length) return;
 
-      // Lê os itens do dataset gerado
-      const { items } = await apify.dataset(run.defaultDatasetId).listItems();
+      for (const item of results) {
+        const original = item.original_price;
+        const atual    = item.price;
+        if (!original || original <= atual) continue;
 
-      // Filtra apenas ofertas com desconto real
-      const discounted = items.filter(item => {
-        const price    = Number(item.price         ?? item.currentPrice ?? 0);
-        const original = Number(item.originalPrice ?? item.priceBeforeDiscount ?? 0);
-        return original > 0 && price > 0 && price < original;
-      });
+        const pct = Math.round(((original - atual) / original) * 100);
+        if (pct < DESCONTO_MINIMO) continue;
 
-      console.log(`   ➜ ${items.length} produtos retornados, ${discounted.length} com desconto real aprovado.`);
-
-      for (const item of discounted) {
-        const price    = Number(item.price         ?? item.currentPrice);
-        const original = Number(item.originalPrice ?? item.priceBeforeDiscount);
-        const pct      = Math.round(((original - price) / original) * 100);
-        const image    = getHighResImageUrl(item.imageUrl ?? item.thumbnail ?? '');
-        const link     = item.url ?? item.permalink ?? '';
-        const title    = item.title ?? item.name ?? 'Produto sem título';
-
-        allProducts.push({
-          ml_id:               item.id ?? item.mlId ?? `apify-${Date.now()}-${Math.random()}`,
-          title,
+        produtos.push({
+          ml_id:               item.id,
+          title:               item.title,
           original_price:      original,
-          discount_price:      price,
+          discount_price:      atual,
           discount_percentage: pct,
-          copy_text:           generateCopy(title, original, price, pct, link),
-          affiliate_link:      link,
+          copy_text:           generateCopy(item.title, original, atual, pct, item.permalink),
+          affiliate_link:      item.permalink,
           category:            'Utilidades do Lar',
-          image_url:           image,
+          image_url:           getHighRes(item.thumbnail),
           status:              'pending',
           created_at:          new Date().toISOString()
         });
       }
-    } catch (err) {
-      console.error(`   ❌ Erro ao processar "${keyword}":`, err.message);
-    }
+    } catch (_) {}
+  });
+
+  // URL correta do ML Brasil (lista.mercadolivre.com.br)
+  const slug = keyword.replace(/\s+/g, '-');
+  const url  = `https://lista.mercadolivre.com.br/${slug}`;
+
+  try {
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+    // Aguarda chamadas tardias
+    await page.waitForTimeout(2000);
+  } catch (e) {
+    // networkidle timeout é comum em SPAs — continua normalmente
+    if (!e.message.includes('Timeout')) throw e;
   }
 
-  // Deduplica por ml_id
+  await page.close();
+  return produtos;
+}
+
+// ─────────────────────────────────────────────
+// 6. MAIN
+// ─────────────────────────────────────────────
+async function runGarimpoWorker() {
+  console.log('\n══════════════════════════════════════════════════');
+  console.log('  🚀  YGA WORKER — Network Interception');
+  console.log('══════════════════════════════════════════════════');
+  console.log(`  📅  Keyword: "${todayKeyword}"`);
+  console.log('══════════════════════════════════════════════════\n');
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // Em CI (GitHub Actions), roda headful com xvfb. Local, headless.
+  const isCI = !!process.env.CI;
+
+  const browser = await chromium.launch({
+    headless: !isCI, // headless local, headful no CI com xvfb
+    args: [
+      '--no-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-infobars',
+      '--lang=pt-BR',
+      ...(isCI ? ['--disable-gpu', '--disable-dev-shm-usage'] : [])
+    ]
+  });
+
+  const context = await browser.newContext({
+    storageState: SESSION_PATH,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    viewport:    { width: 1366, height: 768 },
+    locale:      'pt-BR',
+    timezoneId:  'America/Sao_Paulo',
+    extraHTTPHeaders: { 'Accept-Language': 'pt-BR,pt;q=0.9' }
+  });
+
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    if (!window.chrome) window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en'] });
+  });
+
+  console.log(`🍪 Sessão ML carregada${isCI ? ' (GitHub Actions)' : ' (local)'}\n`);
+  console.log(`🔍 Garimpando: "${todayKeyword}"...`);
+
+  let found = [];
+  try {
+    found = await garimparKeyword(context, todayKeyword);
+  } catch (err) {
+    console.error(`\n❌ Erro: ${err.message}`);
+    await browser.close();
+    process.exit(1);
+  }
+
+  await browser.close();
+
+  console.log(`   ➜ ${found.length} com desconto ≥${DESCONTO_MINIMO}% aprovado.`);
+
+  if (found.length === 0) {
+    console.warn('\n⚠️  Nenhuma oferta interceptada.');
+    console.warn('   Se isso persistir, renove a sessão: node garimpo-login.js\n');
+    process.exit(0);
+  }
+
+  // Deduplica e ordena
   const uniqueMap = new Map();
-  allProducts.forEach(p => uniqueMap.set(p.ml_id, p));
-  const finalList = Array.from(uniqueMap.values());
+  found.forEach(p => uniqueMap.set(p.ml_id, p));
+  const finalList = Array.from(uniqueMap.values())
+    .sort((a, b) => b.discount_percentage - a.discount_percentage);
 
-  if (finalList.length === 0) {
-    console.warn('\n⚠️  Nenhuma oferta com desconto real encontrada. Nada foi gravado.\n');
-    return;
-  }
-
-  // Ordena por maior desconto para exibição no log
-  finalList.sort((a, b) => b.discount_percentage - a.discount_percentage);
-
-  console.log(`\n💾  Gravando ${finalList.length} ofertas no Supabase...`);
+  console.log(`\n💾 Gravando ${finalList.length} ofertas no Supabase...`);
 
   const { error } = await supabase
     .from('products')
     .upsert(finalList, { onConflict: 'ml_id' });
 
   if (error) {
-    console.error('\n❌  ERRO no upsert do Supabase:', error.message, error.details ?? '');
-    return;
+    console.error('\n❌ ERRO Supabase:', error.message, error.details ?? '');
+    process.exit(1);
   }
 
-  console.log('\n════════════════════════════════════════════════');
-  console.log('  ✅  GARIMPO CONCLUÍDO COM SUCESSO!');
-  console.log(`  • Ofertas garimpadas e gravadas: ${finalList.length}`);
-  console.log(`  • Top desconto: ${finalList[0].title.slice(0, 50)}... (${finalList[0].discount_percentage}% OFF)`);
-  console.log('  • Abra o painel e clique em "🔄 Atualizar Tela" para ver os cards.');
-  console.log('════════════════════════════════════════════════\n');
+  console.log('\n══════════════════════════════════════════════════');
+  console.log('  ✅  GARIMPO CONCLUÍDO!');
+  console.log(`  • Ofertas gravadas: ${finalList.length}`);
+  console.log(`  • 🏆 Top: ${finalList[0].title.slice(0, 50)}...`);
+  console.log(`  • 🔥 Desconto: ${finalList[0].discount_percentage}% OFF`);
+  console.log('══════════════════════════════════════════════════\n');
 }
 
 runGarimpoWorker();
