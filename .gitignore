@@ -17,6 +17,13 @@ out/
 .env.test.local
 .env.production.local
 
+# Sessão e arquivos sensíveis do Worker Local
+ml-cookies.json
+ml-session.json
+.ml-profile
+debug-ml-screenshot.png
+garimpo-debug.js
+
 # Arquivos de Log e Debug
 *.log
 npm-debug.log*

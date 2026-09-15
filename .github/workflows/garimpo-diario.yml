@@ -21,7 +21,15 @@ jobs:
         run: |
           echo "🚀 Iniciando varredura automatizada de ofertas no Mercado Livre..."
           
+<<<<<<< HEAD
           # URL Oficial de Produção configurada na Vercel
+=======
+          # =========================================================================
+          # ATENÇÃO IMPORTANTE PARA O DEPLOY FINAL:
+          # Substitua a URL abaixo ('https://sua-app-ysa-garimpo.vercel.app/api/search-ml')
+          # pelo domínio real em produção da sua aplicação (ex: Vercel, Netlify ou servidor próprio).
+          # =========================================================================
+>>>>>>> fa38afab4ea83b87fd7f4889be8e875267a8deb0
           API_URL="https://ysa-garimpo.vercel.app/api/search-ml"
           
           RESPONSE=$(curl -s -X POST "$API_URL" \

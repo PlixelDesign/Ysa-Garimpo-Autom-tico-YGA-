@@ -1,17 +1,15 @@
 /**
- * YGA — Salva Sessão do ML (roda UMA VEZ ou quando a sessão expirar)
+ * YGA — Login e Captura de Sessão do Mercado Livre
+ *
+ * Abre um Chrome isolado (não conflita com seu Chrome pessoal aberto).
+ * Você só faz o login uma vez.
  *
  * Execução: node garimpo-login.js
- *
- * Abre um Chrome VISÍVEL. Faça login no ML.
- * Pressione ENTER no terminal quando estiver logado.
- * A sessão é salva em ml-session.json.
  */
 
+import path from 'path';
 import { chromium } from 'playwright';
 import * as readline from 'readline';
-
-const SESSION_PATH = './ml-session.json';
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const waitEnter = () => new Promise(resolve => {
@@ -20,35 +18,43 @@ const waitEnter = () => new Promise(resolve => {
 
 (async () => {
   console.log('\n════════════════════════════════════════════');
-  console.log('  🔐  YGA LOGIN — Salvar Sessão do ML');
+  console.log('  🔐  YGA LOGIN — Sessão do Mercado Livre');
   console.log('════════════════════════════════════════════\n');
-  console.log('📌 Um Chrome VISÍVEL vai abrir agora.');
-  console.log('   1. Faça login normalmente no Mercado Livre');
-  console.log('   2. Quando a página principal carregar, volte aqui');
-  console.log('   3. Pressione ENTER para salvar a sessão\n');
+  console.log('📌 Abrindo janela dedicada do Chrome...');
+  console.log('💡 DICA: Você NÃO precisa fechar seu Chrome pessoal!\n');
 
-  const browser = await chromium.launch({
+  // Usa uma pasta de perfil própria do projeto para NUNCA conflitar com seu Chrome pessoal
+  const projectProfileDir = path.resolve(process.cwd(), '.ml-profile');
+
+  const context = await chromium.launchPersistentContext(projectProfileDir, {
+    channel: 'chrome',
     headless: false,
-    args: ['--start-maximized', '--lang=pt-BR']
+    args: [
+      '--start-maximized',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-blink-features=AutomationControlled'
+    ]
   });
 
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    viewport: null,
-    locale: 'pt-BR',
-    timezoneId: 'America/Sao_Paulo'
-  });
+  const page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
 
-  const page = await context.newPage();
+  console.log('🌐 Abrindo Mercado Livre...');
   await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'domcontentloaded' });
 
-  console.log('⏳ Faça login no browser aberto e pressione ENTER aqui quando terminar...\n');
+  console.log('\n👉 Na janela do Chrome que abriu:');
+  console.log('   1. Faça o login na sua conta do Mercado Livre');
+  console.log('   2. Quando a página inicial carregar com você logado...');
+  console.log('   3. Volte aqui neste terminal e pressione ENTER.\n');
+
   await waitEnter();
 
-  await context.storageState({ path: SESSION_PATH });
+  // Salva os cookies e sessão para uso no worker e no GitHub Actions
+  await context.storageState({ path: './ml-session.json' });
 
-  console.log(`\n✅ Sessão salva em: ${SESSION_PATH}`);
-  console.log('🚀 Agora rode: node garimpo-worker.js\n');
+  console.log('\n✅ Sessão capturada com sucesso em: ./ml-session.json');
+  console.log('🚀 Agora você pode rodar: node garimpo-worker.js\n');
 
-  await browser.close();
+  await context.close();
+  process.exit(0);
 })();
