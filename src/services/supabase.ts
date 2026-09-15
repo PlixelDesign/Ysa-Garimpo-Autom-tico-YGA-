@@ -43,7 +43,7 @@ export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
       originalPrice: Number(item.original_price),
       discountPrice: Number(item.discount_price),
       discountPercentage: Number(item.discount_percentage),
-      copyText: item.copy_text,
+      copyText: item.copy_text || '',
       affiliateLink: item.affiliate_link || item.original_link || item.permalink,
       category: item.category || 'Utilidades do Lar',
       imageUrl: item.image_url,

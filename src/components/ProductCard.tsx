@@ -163,10 +163,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 isCopyExpanded ? 'max-h-60' : 'max-h-24'
               }`}
             >
-              {product.copyText}
+              {product.copyText || '⏳ Copy sendo gerada em breve...'}
             </div>
 
-            {product.copyText.length > 150 && (
+            {(product.copyText?.length ?? 0) > 150 && (
               <button
                 onClick={() => setIsCopyExpanded(!isCopyExpanded)}
                 className="mt-2 text-[11px] font-sans font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-0.5 justify-center w-full pt-1 border-t border-slate-800/80"

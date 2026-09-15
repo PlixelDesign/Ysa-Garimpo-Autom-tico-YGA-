@@ -172,9 +172,9 @@ export function useProducts() {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
         return (
-          p.title.toLowerCase().includes(q) ||
-          p.copyText.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q)
+          (p.title || '').toLowerCase().includes(q) ||
+          (p.copyText || '').toLowerCase().includes(q) ||
+          (p.category || '').toLowerCase().includes(q)
         );
       })
       .sort((a, b) => b.discountPercentage - a.discountPercentage);
