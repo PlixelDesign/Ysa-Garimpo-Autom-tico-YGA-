@@ -20,7 +20,7 @@ export const QuickEditModal: React.FC<QuickEditModalProps> = ({
 
   useEffect(() => {
     if (product) {
-      setEditedCopy(product.copyText);
+      setEditedCopy(product.copyText || '');
     }
   }, [product]);
 

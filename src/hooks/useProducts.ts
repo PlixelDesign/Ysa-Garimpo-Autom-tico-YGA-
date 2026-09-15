@@ -80,7 +80,7 @@ export function useProducts() {
 
   // Copiar Copy + Link para a área de transferência
   const copyProductData = useCallback(async (product: Product) => {
-    const textToCopy = `${product.copyText}\n\n🛒 Link do Produto: ${product.affiliateLink}`;
+    const textToCopy = `${product.copyText || ''}\n\n🛒 Link do Produto: ${product.affiliateLink || ''}`;
     
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -189,8 +189,8 @@ export function useProducts() {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
         return (
-          p.title.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q)
+          (p.title || '').toLowerCase().includes(q) ||
+          (p.category || '').toLowerCase().includes(q)
         );
       })
       .sort((a, b) => {

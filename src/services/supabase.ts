@@ -38,21 +38,21 @@ export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
     if (!data) return [];
 
     return data.map((item: any) => ({
-      id: item.id || item.ml_id,
-      title: item.title,
-      originalPrice: Number(item.original_price),
-      discountPrice: Number(item.discount_price),
-      discountPercentage: Number(item.discount_percentage),
+      id: item.id || item.ml_id || '',
+      title: item.title || 'Produto sem título',
+      originalPrice: Number(item.original_price) || 0,
+      discountPrice: Number(item.discount_price) || 0,
+      discountPercentage: Number(item.discount_percentage) || 0,
       copyText: item.copy_text || '',
-      affiliateLink: item.affiliate_link || item.original_link || item.permalink,
+      affiliateLink: item.affiliate_link || item.original_link || item.permalink || '',
       category: item.category || 'Utilidades do Lar',
-      imageUrl: item.image_url,
+      imageUrl: item.image_url || '',
       status: (item.status as ProductStatus) || 'pending',
-      createdAt: item.created_at,
+      createdAt: item.created_at || new Date().toISOString(),
       publishedAt: item.published_at,
       rating: item.rating ? Number(item.rating) : 4.8,
       reviewsCount: item.reviews_count ? Number(item.reviews_count) : 120,
-      mlId: item.ml_id
+      mlId: item.ml_id || ''
     }));
   } catch (err: any) {
     console.error('[Supabase Fetch Exception]:', err);
