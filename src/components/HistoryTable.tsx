@@ -26,7 +26,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
 
   const handleCopyOriginalLink = async (product: Product) => {
     try {
-      const urlToCopy = product.affiliateLink;
+      const urlToCopy = product.originalLink;
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(urlToCopy);
       } else {
@@ -219,7 +219,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({
 
                     {/* Link Externo */}
                     <a
-                      href={product.affiliateLink}
+                      href={product.originalLink}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 p-1.5 text-slate-400 hover:text-amber-600 hover:bg-slate-200/60 rounded-lg transition-colors"

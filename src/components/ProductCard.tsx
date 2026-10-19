@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product } from '../types/product';
-import { Copy, Check, ExternalLink, Calendar, Star, Edit3, Tag, ChevronDown, ChevronUp, Link as LinkIcon } from 'lucide-react';
+import { formatBRL, getCopyText, hasAffiliateLink } from '../utils/copy';
+import { Copy, Check, ExternalLink, Calendar, Star, Edit3, Tag, ChevronDown, ChevronUp, Link as LinkIcon, AlertTriangle } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
@@ -30,7 +31,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   // Copiar estritamente o Link Original do produto para o app Mercado Livre Criadores
   const handleCopyOriginalLink = async () => {
     try {
-      const urlToCopy = product.affiliateLink;
+      const urlToCopy = product.originalLink;
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(urlToCopy);
       } else {
@@ -49,14 +50,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  // Formatação de Moeda Brasileira
-  const formatBRL = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(val);
-  };
-
+  const copyText = getCopyText(product);
+  const affiliateReady = hasAffiliateLink(product);
   const isHighDiscount = product.discountPercentage >= 40;
 
   return (
@@ -95,7 +90,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             {product.category}
           </span>
           <a
-            href={product.affiliateLink}
+            href={product.originalLink}
             target="_blank"
             rel="noopener noreferrer"
             title="Abrir anúncio no Mercado Livre"
@@ -107,10 +102,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Avaliação e ID ML no rodapé da imagem */}
         <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-[11px] font-semibold text-slate-500 bg-white/85 backdrop-blur-sm px-2.5 py-1 rounded-md border border-slate-200/50">
-          <span className="flex items-center gap-1 text-amber-600">
-            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-            {product.rating || 4.8} ({product.reviewsCount || 120})
-          </span>
+          {product.rating ? (
+            <span className="flex items-center gap-1 text-amber-600">
+              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+              {product.rating} {product.reviewsCount ? `(${product.reviewsCount})` : ''}
+            </span>
+          ) : (
+            <span className="text-slate-400">Sem avaliações</span>
+          )}
           <span className="text-slate-400">ML ID: {product.mlId || 'MLB'}</span>
         </div>
 
@@ -163,10 +162,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 isCopyExpanded ? 'max-h-60' : 'max-h-24'
               }`}
             >
-              {product.copyText || '⏳ Copy sendo gerada em breve...'}
+              {copyText}
             </div>
 
-            {(product.copyText?.length ?? 0) > 150 && (
+            {copyText.length > 150 && (
               <button
                 onClick={() => setIsCopyExpanded(!isCopyExpanded)}
                 className="mt-2 text-[11px] font-sans font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-0.5 justify-center w-full pt-1 border-t border-slate-800/80"
@@ -184,7 +183,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {/* SEÇÃO INFERIOR: Botões de Ação Principais */}
         <div className="space-y-2 pt-2 border-t border-slate-100">
           
-          {/* 1. Botão Primário Largo: Copiar Copy + Link */}
+          {/* 1. Botão Primário Largo: Copiar Copy + Link (exige link de afiliado) */}
+          {!affiliateReady && onEditCopy ? (
+            <button
+              onClick={() => onEditCopy(product)}
+              className="w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-sm active:scale-[0.98] cursor-pointer bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-300"
+              title="Sem link de afiliado a venda não gera comissão"
+            >
+              <AlertTriangle className="w-4 h-4" />
+              <span>Colar Link de Afiliado</span>
+            </button>
+          ) : (
           <button
             id={`copy-btn-${product.id}`}
             onClick={handleCopyClick}
@@ -206,6 +215,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               </>
             )}
           </button>
+          )}
 
           {/* 2. Botão Estratégico: Copiar Link Original (Para o app ML Criadores) */}
           <button
