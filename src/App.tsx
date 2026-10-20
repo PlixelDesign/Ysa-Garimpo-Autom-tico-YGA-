@@ -28,6 +28,7 @@ export const App: React.FC = () => {
     copyProductData,
     markAsPublished,
     restoreToRadar,
+    discardProduct,
     updateProductContent,
     toast,
     hideToast
@@ -137,6 +138,7 @@ export const App: React.FC = () => {
             selectedCategory={selectedCategory}
             onCopy={copyProductData}
             onPublish={markAsPublished}
+            onDiscard={discardProduct}
             onEditCopy={setEditingProduct}
             onResetFilters={() => {
               setSelectedCategory('Todas');

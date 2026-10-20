@@ -2,7 +2,7 @@ export type CategoryType = 'Utilidades do Lar' | 'Decoração' | 'Tecnologia';
 
 export type FilterCategoryType = CategoryType | 'Todas';
 
-export type ProductStatus = 'pending' | 'published';
+export type ProductStatus = 'pending' | 'published' | 'discarded';
 
 export interface Product {
   id: string;
@@ -17,6 +17,7 @@ export interface Product {
   imageUrl: string;
   status: ProductStatus;
   createdAt: string;
+  lastSeenAt: string;
   publishedAt?: string;
   rating?: number;
   reviewsCount?: number;

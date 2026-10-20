@@ -34,19 +34,42 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Termo de busca → categoria exibida no painel
-const QUERIES = [
+// Banco de buscas (termo → categoria do painel). A cada execução o worker sorteia
+// BUSCAS_POR_EXECUCAO termos e uma página de resultados, para não trazer sempre o mesmo topo.
+const QUERY_POOL = [
   { q: 'mop giratorio', category: 'Utilidades do Lar' },
   { q: 'lixeira cozinha', category: 'Utilidades do Lar' },
   { q: 'organizador guarda roupa', category: 'Utilidades do Lar' },
   { q: 'escorredor louça', category: 'Utilidades do Lar' },
   { q: 'dispenser sabao liquido', category: 'Utilidades do Lar' },
   { q: 'potes hermeticos', category: 'Utilidades do Lar' },
+  { q: 'jogo de panelas', category: 'Utilidades do Lar' },
+  { q: 'air fryer', category: 'Utilidades do Lar' },
+  { q: 'organizador geladeira', category: 'Utilidades do Lar' },
+  { q: 'kit utensilios cozinha silicone', category: 'Utilidades do Lar' },
+  { q: 'garrafa termica', category: 'Utilidades do Lar' },
+  { q: 'cesto roupa suja', category: 'Utilidades do Lar' },
+  { q: 'tabua de corte', category: 'Utilidades do Lar' },
+  { q: 'varal de chao', category: 'Utilidades do Lar' },
   { q: 'luminaria led decorativa', category: 'Decoração' },
   { q: 'tapete sala', category: 'Decoração' },
+  { q: 'espelho decorativo', category: 'Decoração' },
+  { q: 'jogo de cama casal', category: 'Decoração' },
+  { q: 'cortina blackout', category: 'Decoração' },
+  { q: 'vaso decorativo', category: 'Decoração' },
+  { q: 'quadro decorativo', category: 'Decoração' },
+  { q: 'fita led', category: 'Decoração' },
   { q: 'fone bluetooth', category: 'Tecnologia' },
-  { q: 'robo aspirador', category: 'Tecnologia' }
+  { q: 'robo aspirador', category: 'Tecnologia' },
+  { q: 'smartwatch', category: 'Tecnologia' },
+  { q: 'caixa de som bluetooth', category: 'Tecnologia' },
+  { q: 'carregador portatil power bank', category: 'Tecnologia' },
+  { q: 'lampada inteligente wifi', category: 'Tecnologia' },
+  { q: 'suporte celular', category: 'Tecnologia' },
+  { q: 'mini projetor', category: 'Tecnologia' }
 ];
+const BUSCAS_POR_EXECUCAO = 10;
+const PAGINAS = 3; // o ML lista 48 itens por página
 const DESCONTO_MINIMO = 15;
 const SESSION_FILE = './ml-session.json';
 
@@ -62,7 +85,27 @@ function loadSessionState() {
   }
 }
 
-async function garimpar(browser, { q, category }) {
+function sortearBuscas() {
+  const embaralhado = [...QUERY_POOL];
+  for (let i = embaralhado.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [embaralhado[i], embaralhado[j]] = [embaralhado[j], embaralhado[i]];
+  }
+  return embaralhado
+    .slice(0, BUSCAS_POR_EXECUCAO)
+    .map(query => ({ ...query, pagina: Math.floor(Math.random() * PAGINAS) }));
+}
+
+async function abrirBusca(page, slug, pagina) {
+  const desde = pagina > 0 ? `_Desde_${pagina * 48 + 1}` : '';
+  await page.goto(`https://lista.mercadolivre.com.br/${encodeURI(slug)}${desde}_Discount_1-100`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 45000
+  });
+  await page.waitForSelector('.poly-card', { timeout: 20000 });
+}
+
+async function garimpar(browser, { q, category, pagina }) {
   const context = await browser.newContext({
     storageState: loadSessionState(),
     locale: 'pt-BR',
@@ -73,12 +116,14 @@ async function garimpar(browser, { q, category }) {
     const page = await context.newPage();
     const slug = q.trim().replace(/\s+/g, '-');
 
-    // 'networkidle' nunca acontece no ML (analytics contínuo) e estourava o timeout
-    await page.goto(`https://lista.mercadolivre.com.br/${encodeURI(slug)}_Discount_1-100`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 45000
-    });
-    await page.waitForSelector('.poly-card', { timeout: 20000 });
+    // 'networkidle' nunca acontece no ML (analytics contínuo) e estourava o timeout.
+    // Busca com poucos resultados não tem a página sorteada: volta para a primeira.
+    try {
+      await abrirBusca(page, slug, pagina);
+    } catch (err) {
+      if (pagina === 0) throw err;
+      await abrirBusca(page, slug, 0);
+    }
 
     // Rola a página para o lazy-load trocar os placeholders pelas imagens reais
     for (let i = 0; i < 6; i++) {
@@ -164,6 +209,7 @@ async function salvar(produtos) {
   if (selectError) throw new Error(`Falha ao consultar produtos existentes: ${selectError.message}`);
 
   const idsExistentes = new Set((existentes || []).map(r => r.ml_id));
+  const agora = new Date().toISOString();
 
   const camposDePreco = p => ({
     ml_id: p.mlId,
@@ -174,7 +220,8 @@ async function salvar(produtos) {
     original_link: p.link,
     ...(p.thumbnail ? { image_url: p.thumbnail } : {}),
     rating: p.rating,
-    reviews_count: p.reviews
+    reviews_count: p.reviews,
+    last_seen_at: agora
   });
 
   // Novos: entram no Radar. copy_text vazio = o painel gera a copy com o preço atual.
@@ -187,7 +234,7 @@ async function salvar(produtos) {
       copy_text: '',
       category: p.category,
       status: 'pending',
-      created_at: new Date().toISOString()
+      created_at: agora
     }));
 
   // Já existentes: atualiza só preço/imagem, preservando status, copy editada e link de afiliado da Ysa
@@ -212,14 +259,15 @@ async function salvar(produtos) {
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
+  const buscas = sortearBuscas();
   let todos = [];
   let falhas = 0;
 
   try {
-    for (const query of QUERIES) {
+    for (const query of buscas) {
       try {
         const resultado = await garimpar(browser, query);
-        console.log(`[${query.q}] → ${resultado.length} produtos com ≥${DESCONTO_MINIMO}% de desconto`);
+        console.log(`[${query.q} · pág. ${query.pagina + 1}] → ${resultado.length} produtos com ≥${DESCONTO_MINIMO}% de desconto`);
         todos = todos.concat(resultado);
       } catch (err) {
         falhas++;
@@ -232,11 +280,11 @@ async function main() {
 
   if (todos.length === 0) {
     console.error(
-      falhas === QUERIES.length
+      falhas === buscas.length
         ? '❌ Todas as buscas falharam (bloqueio do ML ou seletores mudaram). Se persistir, renove a sessão: node garimpo-login.js'
         : '⚠️ Nenhum produto com desconto suficiente encontrado.'
     );
-    process.exit(falhas === QUERIES.length ? 1 : 0);
+    process.exit(falhas === buscas.length ? 1 : 0);
   }
 
   await salvar(todos);

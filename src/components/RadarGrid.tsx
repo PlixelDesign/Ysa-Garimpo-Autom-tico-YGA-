@@ -8,6 +8,7 @@ interface RadarGridProps {
   selectedCategory: FilterCategoryType;
   onCopy: (product: Product) => Promise<boolean>;
   onPublish: (productId: string) => void;
+  onDiscard: (productId: string) => void;
   onEditCopy?: (product: Product) => void;
   onResetFilters: () => void;
 }
@@ -17,6 +18,7 @@ export const RadarGrid: React.FC<RadarGridProps> = ({
   selectedCategory,
   onCopy,
   onPublish,
+  onDiscard,
   onEditCopy,
   onResetFilters
 }) => {
@@ -55,7 +57,7 @@ export const RadarGrid: React.FC<RadarGridProps> = ({
           </div>
           <div>
             <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-              Ordenação Automática: Maior Desconto (%) no Topo
+              Novidades Primeiro, Depois Maior Desconto (%)
             </h2>
             <p className="text-xs text-slate-600">
               Exibindo <span className="font-bold text-slate-900">{products.length}</span> produtos garimpados com copy pronta para publicação.
@@ -75,6 +77,7 @@ export const RadarGrid: React.FC<RadarGridProps> = ({
             product={product}
             onCopy={onCopy}
             onPublish={onPublish}
+            onDiscard={onDiscard}
             onEditCopy={onEditCopy}
           />
         ))}

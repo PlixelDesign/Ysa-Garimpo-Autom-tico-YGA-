@@ -6,7 +6,7 @@ import {
   updateProductStatusInSupabase,
   updateProductContentInSupabase
 } from '../services/supabase';
-import { buildShareText, hasAffiliateLink } from '../utils/copy';
+import { buildShareText, hasAffiliateLink, isNewProduct, isOfferFresh } from '../utils/copy';
 import confetti from 'canvas-confetti';
 
 export interface ToastState {
@@ -172,6 +172,20 @@ export function useProducts() {
     );
   }, [isUsingSupabase, showToastNotification]);
 
+  // Descartar produto: some do Radar e o garimpo não o traz de volta
+  const discardProduct = useCallback(async (productId: string) => {
+    setProducts(prevProducts =>
+      prevProducts.map(p => (p.id === productId ? { ...p, status: 'discarded' as ProductStatus } : p))
+    );
+
+    if (isUsingSupabase && !(await updateProductStatusInSupabase(productId, 'discarded'))) {
+      showToastNotification('Erro ao salvar no banco', 'O produto volta ao recarregar a página. Tente de novo.');
+      return;
+    }
+
+    showToastNotification('Produto descartado', 'Ele não volta mais para o Radar.');
+  }, [isUsingSupabase, showToastNotification]);
+
   // Atualizar a Copy e o link de afiliado de um produto
   const updateProductContent = useCallback(async (productId: string, copyText: string, affiliateLink: string) => {
     setProducts(prev =>
@@ -186,10 +200,10 @@ export function useProducts() {
     showToastNotification('Produto Atualizado!', 'Copy e link de afiliado salvos.');
   }, [isUsingSupabase, showToastNotification]);
 
-  // RADAR DO DIA: Ordenado SEMPRE por maior desconto (%)
+  // RADAR DO DIA: só ofertas ainda vistas pelo garimpo; novidades das últimas 24h no topo, depois maior desconto
   const radarProducts = useMemo(() => {
     return products
-      .filter(p => p.status === 'pending')
+      .filter(p => p.status === 'pending' && isOfferFresh(p))
       .filter(p => selectedCategory === 'Todas' || p.category === selectedCategory)
       .filter(p => {
         if (!searchQuery.trim()) return true;
@@ -200,7 +214,10 @@ export function useProducts() {
           (p.category || '').toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => b.discountPercentage - a.discountPercentage);
+      .sort((a, b) =>
+        Number(isNewProduct(b)) - Number(isNewProduct(a)) ||
+        b.discountPercentage - a.discountPercentage
+      );
   }, [products, selectedCategory, searchQuery]);
 
   // HISTÓRICO: Ordenado por publicação mais recente
@@ -225,7 +242,7 @@ export function useProducts() {
 
   // Métricas
   const metrics = useMemo<MetricSummary>(() => {
-    const pendingList = products.filter(p => p.status === 'pending');
+    const pendingList = products.filter(p => p.status === 'pending' && isOfferFresh(p));
     const publishedList = products.filter(p => p.status === 'published');
     
     const maxDiscount = pendingList.reduce(
@@ -265,6 +282,7 @@ export function useProducts() {
     copyProductData,
     markAsPublished,
     restoreToRadar,
+    discardProduct,
     updateProductContent,
     toast,
     hideToast
