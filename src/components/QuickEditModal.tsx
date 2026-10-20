@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Product } from '../types/product';
-import { X, Save, Copy, Check } from 'lucide-react';
+import { getCopyText, hasAffiliateLink } from '../utils/copy';
+import { X, Save, Copy, Check, ExternalLink } from 'lucide-react';
 
 interface QuickEditModalProps {
   product: Product | null;
   onClose: () => void;
-  onSave: (productId: string, newCopyText: string) => void;
+  onSave: (productId: string, copyText: string, affiliateLink: string) => void;
   onCopy: (product: Product) => Promise<boolean>;
 }
 
@@ -16,23 +17,31 @@ export const QuickEditModal: React.FC<QuickEditModalProps> = ({
   onCopy
 }) => {
   const [editedCopy, setEditedCopy] = useState<string>('');
+  const [editedLink, setEditedLink] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     if (product) {
-      setEditedCopy(product.copyText || '');
+      setEditedCopy(getCopyText(product));
+      setEditedLink(hasAffiliateLink(product) ? product.affiliateLink : '');
     }
   }, [product]);
 
   if (!product) return null;
 
+  const trimmedLink = editedLink.trim();
+  const isLinkValid = /^https?:\/\/\S+$/i.test(trimmedLink) && trimmedLink !== product.originalLink;
+  // Copy idêntica à gerada automaticamente não é salva: assim o preço continua atualizando sozinho
+  const copyToSave = editedCopy.trim() === getCopyText({ ...product, copyText: '' }).trim() ? '' : editedCopy;
+  const linkToSave = isLinkValid ? trimmedLink : product.originalLink;
+
   const handleSave = () => {
-    onSave(product.id, editedCopy);
+    onSave(product.id, copyToSave, linkToSave);
     onClose();
   };
 
   const handleCopyNow = async () => {
-    const updatedProduct = { ...product, copyText: editedCopy };
+    const updatedProduct = { ...product, copyText: editedCopy, affiliateLink: linkToSave };
     const success = await onCopy(updatedProduct);
     if (success) {
       setCopied(true);
@@ -72,6 +81,31 @@ export const QuickEditModal: React.FC<QuickEditModalProps> = ({
         {/* Corpo do Modal - Área de Edição */}
         <div className="py-4 flex-1 overflow-y-auto">
           <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+            Seu Link de Afiliado (meli.la):
+          </label>
+          <input
+            type="url"
+            value={editedLink}
+            onChange={(e) => setEditedLink(e.target.value)}
+            placeholder="https://meli.la/..."
+            className={`w-full p-3 rounded-xl border text-xs font-mono focus:ring-2 focus:ring-amber-400 focus:outline-none ${
+              trimmedLink && !isLinkValid ? 'border-rose-400 bg-rose-50' : 'border-slate-300'
+            }`}
+          />
+          <p className="text-xs text-slate-500 mt-1.5 mb-4">
+            Abra o{' '}
+            <a
+              href={product.originalLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-amber-700 font-semibold inline-flex items-center gap-0.5 hover:underline"
+            >
+              anúncio <ExternalLink className="w-3 h-3" />
+            </a>{' '}
+            logada no Mercado Livre, clique em "Compartilhar" na barra de afiliados e cole o link aqui. Sem ele, a venda não gera comissão.
+          </p>
+
+          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
             Texto Persuasivo de Vendas (Instagram / Telegram):
           </label>
           <textarea
@@ -82,7 +116,7 @@ export const QuickEditModal: React.FC<QuickEditModalProps> = ({
             placeholder="Digite ou ajuste o texto da copy..."
           />
           <div className="flex items-center justify-between text-xs text-slate-500 mt-2">
-            <span>Link de Afiliado incluído automaticamente ao copiar.</span>
+            <span>O link de afiliado é incluído automaticamente ao copiar.</span>
             <span>{editedCopy.length} caracteres</span>
           </div>
         </div>
@@ -91,7 +125,9 @@ export const QuickEditModal: React.FC<QuickEditModalProps> = ({
         <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
           <button
             onClick={handleCopyNow}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+            disabled={!isLinkValid}
+            title={isLinkValid ? undefined : 'Cole um link de afiliado válido primeiro'}
+            className={`px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
               copied
                 ? 'bg-emerald-600 text-white'
                 : 'bg-amber-400 hover:bg-amber-300 text-slate-950 border border-amber-500/30'

@@ -28,7 +28,7 @@ export const App: React.FC = () => {
     copyProductData,
     markAsPublished,
     restoreToRadar,
-    updateProductCopy,
+    updateProductContent,
     toast,
     hideToast
   } = useProducts();
@@ -66,7 +66,7 @@ export const App: React.FC = () => {
                   Painel Sincronizado com o Supabase
                 </h2>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Execute o worker local <code className="bg-amber-100/80 px-1 py-0.5 rounded font-mono text-amber-900">node garimpo-worker.js</code> no seu terminal para garimpar novas ofertas reais do Mercado Livre e gravar no banco.
+                  O robô garimpa sozinho 3x por dia (8h, 14h e 20h). Para rodar agora: aba Actions do GitHub → "Garimpo Diário YGA" → Run workflow.
                 </p>
               </div>
             </div>
@@ -108,9 +108,9 @@ export const App: React.FC = () => {
               O garimpo de ofertas é executado via script autônomo <code className="text-amber-300">garimpo-worker.js</code> no seu computador/servidor, imune a bloqueios de WAF:
             </p>
             <ol className="list-decimal list-inside space-y-1.5 text-slate-300 font-mono bg-slate-950 p-3 rounded-lg border border-slate-800/80">
-              <li>Certifique-se de que as chaves <code className="text-amber-400">VITE_SUPABASE_URL</code> e <code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code> estão configuradas no <code className="text-amber-400">.env</code>.</li>
+              <li>Use Node.js 22 ou mais novo e configure <code className="text-amber-400">VITE_SUPABASE_URL</code> e <code className="text-amber-400">VITE_SUPABASE_ANON_KEY</code> no <code className="text-amber-400">.env</code>.</li>
               <li>No terminal da raiz do projeto, rode: <code className="text-amber-400">node garimpo-worker.js</code></li>
-              <li>O script varrerá 50 itens do Mercado Livre, filtrará os descontos reais e salvará diretamente no Supabase!</li>
+              <li>O script busca ofertas com 15%+ de desconto no Mercado Livre e salva direto no Supabase.</li>
             </ol>
           </div>
         )}
@@ -157,7 +157,7 @@ export const App: React.FC = () => {
       <QuickEditModal
         product={editingProduct}
         onClose={() => setEditingProduct(null)}
-        onSave={updateProductCopy}
+        onSave={updateProductContent}
         onCopy={copyProductData}
       />
 
@@ -174,7 +174,7 @@ export const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-600">
-              <Database className="w-3.5 h-3.5 text-amber-500" /> Supabase Realtime Connected
+              <Database className="w-3.5 h-3.5 text-amber-500" /> {isUsingSupabase ? 'Supabase conectado' : 'Supabase não configurado'}
             </span>
             <a
               href="https://mercadolivre.com.br"

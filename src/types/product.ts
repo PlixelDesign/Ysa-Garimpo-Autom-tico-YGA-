@@ -12,6 +12,7 @@ export interface Product {
   discountPercentage: number;
   copyText: string;
   affiliateLink: string;
+  originalLink: string;
   category: CategoryType;
   imageUrl: string;
   status: ProductStatus;

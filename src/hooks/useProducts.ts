@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Product, FilterCategoryType, MetricSummary, ProductStatus } from '../types/product';
-import { isSupabaseConfigured, fetchProductsFromSupabase, updateProductStatusInSupabase } from '../services/supabase';
+import {
+  isSupabaseConfigured,
+  fetchProductsFromSupabase,
+  updateProductStatusInSupabase,
+  updateProductContentInSupabase
+} from '../services/supabase';
+import { buildShareText, hasAffiliateLink } from '../utils/copy';
 import confetti from 'canvas-confetti';
 
 export interface ToastState {
@@ -80,7 +86,16 @@ export function useProducts() {
 
   // Copiar Copy + Link para a área de transferência
   const copyProductData = useCallback(async (product: Product) => {
-    const textToCopy = `${product.copyText || ''}\n\n🛒 Link do Produto: ${product.affiliateLink || ''}`;
+    // Sem link de afiliado a venda não gera comissão: não deixa copiar o link cru do anúncio
+    if (!hasAffiliateLink(product)) {
+      showToastNotification(
+        'Falta o link de afiliado!',
+        'Gere o link no Mercado Livre Afiliados e cole em "Editar" antes de postar.'
+      );
+      return false;
+    }
+
+    const textToCopy = buildShareText(product);
     
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -125,14 +140,15 @@ export function useProducts() {
       )
     );
 
+    if (isUsingSupabase && !(await updateProductStatusInSupabase(productId, 'published'))) {
+      showToastNotification('Erro ao salvar no banco', 'O status volta ao recarregar a página. Tente de novo.');
+      return;
+    }
+
     showToastNotification(
       'Produto movido para o Histórico!',
       'Status alterado para Publicado com sucesso.'
     );
-
-    if (isUsingSupabase) {
-      await updateProductStatusInSupabase(productId, 'published');
-    }
   }, [isUsingSupabase, showToastNotification]);
 
   // Restaurar produto do Histórico para o Radar
@@ -145,23 +161,30 @@ export function useProducts() {
       )
     );
 
+    if (isUsingSupabase && !(await updateProductStatusInSupabase(productId, 'pending'))) {
+      showToastNotification('Erro ao salvar no banco', 'O status volta ao recarregar a página. Tente de novo.');
+      return;
+    }
+
     showToastNotification(
       'Restaurado para o Radar do Dia',
       'O produto já está visível novamente no Radar.'
     );
-
-    if (isUsingSupabase) {
-      await updateProductStatusInSupabase(productId, 'pending');
-    }
   }, [isUsingSupabase, showToastNotification]);
 
-  // Atualizar a Copy de um produto
-  const updateProductCopy = useCallback((productId: string, newCopyText: string) => {
+  // Atualizar a Copy e o link de afiliado de um produto
+  const updateProductContent = useCallback(async (productId: string, copyText: string, affiliateLink: string) => {
     setProducts(prev =>
-      prev.map(p => (p.id === productId || p.mlId === productId ? { ...p, copyText: newCopyText } : p))
+      prev.map(p => (p.id === productId ? { ...p, copyText, affiliateLink } : p))
     );
-    showToastNotification('Copy Atualizada!', 'As alterações foram salvas com sucesso.');
-  }, [showToastNotification]);
+
+    if (isUsingSupabase && !(await updateProductContentInSupabase(productId, { copyText, affiliateLink }))) {
+      showToastNotification('Erro ao salvar no banco', 'A alteração se perde ao recarregar. Tente de novo.');
+      return;
+    }
+
+    showToastNotification('Produto Atualizado!', 'Copy e link de afiliado salvos.');
+  }, [isUsingSupabase, showToastNotification]);
 
   // RADAR DO DIA: Ordenado SEMPRE por maior desconto (%)
   const radarProducts = useMemo(() => {
@@ -242,7 +265,7 @@ export function useProducts() {
     copyProductData,
     markAsPublished,
     restoreToRadar,
-    updateProductCopy,
+    updateProductContent,
     toast,
     hideToast
   };

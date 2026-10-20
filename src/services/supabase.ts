@@ -44,44 +44,20 @@ export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
       discountPrice: Number(item.discount_price) || 0,
       discountPercentage: Number(item.discount_percentage) || 0,
       copyText: item.copy_text || '',
-      affiliateLink: item.affiliate_link || item.original_link || item.permalink || '',
+      affiliateLink: item.affiliate_link || item.original_link || '',
+      originalLink: item.original_link || item.affiliate_link || '',
       category: item.category || 'Utilidades do Lar',
       imageUrl: item.image_url || '',
       status: (item.status as ProductStatus) || 'pending',
       createdAt: item.created_at || new Date().toISOString(),
       publishedAt: item.published_at,
-      rating: item.rating ? Number(item.rating) : 4.8,
-      reviewsCount: item.reviews_count ? Number(item.reviews_count) : 120,
+      rating: item.rating ? Number(item.rating) : undefined,
+      reviewsCount: item.reviews_count ? Number(item.reviews_count) : undefined,
       mlId: item.ml_id || ''
     }));
   } catch (err: any) {
     console.error('[Supabase Fetch Exception]:', err);
     return null;
-  }
-}
-
-/**
- * Faz o upsert direto dos produtos garimpados no Client-Side para a tabela products
- */
-export async function upsertProductsToSupabase(formattedProducts: any[]): Promise<boolean> {
-  if (!supabase || formattedProducts.length === 0) return false;
-
-  try {
-    console.log(`[Supabase Client-Side] Gravando ${formattedProducts.length} produtos na tabela "products"...`);
-    const { error } = await supabase
-      .from('products')
-      .upsert(formattedProducts, { onConflict: 'ml_id' });
-
-    if (error) {
-      console.error('[Supabase Upsert Error]:', error.message, error.details);
-      return false;
-    }
-
-    console.log('[Supabase Client-Side] ✅ Gravação concluída com sucesso!');
-    return true;
-  } catch (err: any) {
-    console.error('[Supabase Upsert Exception]:', err);
-    return false;
   }
 }
 
@@ -105,7 +81,7 @@ export async function updateProductStatusInSupabase(
     const { error } = await supabase
       .from('products')
       .update(updateData)
-      .or(`id.eq.${productId},ml_id.eq.${productId}`);
+      .eq('id', productId);
 
     if (error) {
       console.error('[Supabase Update Status Error]:', error.message);
@@ -117,4 +93,26 @@ export async function updateProductStatusInSupabase(
     console.error('[Supabase Update Exception]:', err);
     return false;
   }
+}
+
+/**
+ * Salva a copy editada e o link de afiliado colado pela Ysa
+ */
+export async function updateProductContentInSupabase(
+  productId: string,
+  fields: { copyText: string; affiliateLink: string }
+): Promise<boolean> {
+  if (!supabase) return false;
+
+  const { error } = await supabase
+    .from('products')
+    .update({ copy_text: fields.copyText, affiliate_link: fields.affiliateLink })
+    .eq('id', productId);
+
+  if (error) {
+    console.error('[Supabase Update Content Error]:', error.message);
+    return false;
+  }
+
+  return true;
 }

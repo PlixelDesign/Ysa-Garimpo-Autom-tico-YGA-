@@ -13,10 +13,11 @@ jobs:
       - name: 📥 Checkout do repositório
         uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Node.js 20
+      # supabase-js atual exige Node 22+ (WebSocket nativo); no Node 20 o worker quebrava ao iniciar
+      - name: ⚙️ Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: 📦 Instala dependências
@@ -25,12 +26,15 @@ jobs:
       - name: 🌐 Instala Playwright + Chromium com dependências
         run: npx playwright install chromium --with-deps
 
+      # Sessão é opcional; printf evita quebrar o JSON quando ele contém aspas
       - name: 🔐 Restaura sessão do Mercado Livre
-        run: echo '${{ secrets.ML_SESSION }}' > ml-session.json
+        env:
+          ML_SESSION: ${{ secrets.ML_SESSION }}
+        run: printf '%s' "$ML_SESSION" > ml-session.json
 
-      - name: 🚀 Roda o Worker com display virtual (xvfb)
+      - name: 🚀 Roda o Worker
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           CI: true
-        run: xvfb-run --auto-servernum -- node garimpo-worker.js
+        run: node garimpo-worker.js
