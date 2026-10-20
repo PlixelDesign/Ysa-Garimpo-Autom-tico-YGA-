@@ -45,3 +45,7 @@ drop policy if exists "yga_update" on products;
 create policy "yga_select" on products for select using (true);
 create policy "yga_insert" on products for insert with check (true);
 create policy "yga_update" on products for update using (true) with check (true);
+
+-- Última vez que o worker viu o produto em oferta: o painel esconde do Radar o que sumiu do garimpo
+alter table products add column if not exists last_seen_at timestamptz default now();
+update products set last_seen_at = coalesce(created_at, now()) where last_seen_at is null;

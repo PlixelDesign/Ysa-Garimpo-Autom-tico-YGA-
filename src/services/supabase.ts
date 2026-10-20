@@ -50,6 +50,7 @@ export async function fetchProductsFromSupabase(): Promise<Product[] | null> {
       imageUrl: item.image_url || '',
       status: (item.status as ProductStatus) || 'pending',
       createdAt: item.created_at || new Date().toISOString(),
+      lastSeenAt: item.last_seen_at || item.created_at || new Date().toISOString(),
       publishedAt: item.published_at,
       rating: item.rating ? Number(item.rating) : undefined,
       reviewsCount: item.reviews_count ? Number(item.reviews_count) : undefined,

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Product } from '../types/product';
-import { formatBRL, getCopyText, hasAffiliateLink } from '../utils/copy';
-import { Copy, Check, ExternalLink, Calendar, Star, Edit3, Tag, ChevronDown, ChevronUp, Link as LinkIcon, AlertTriangle } from 'lucide-react';
+import { formatBRL, getCopyText, hasAffiliateLink, isNewProduct } from '../utils/copy';
+import { Copy, Check, ExternalLink, Calendar, Star, Edit3, Tag, ChevronDown, ChevronUp, Link as LinkIcon, AlertTriangle, Trash2 } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
   onCopy: (product: Product) => Promise<boolean>;
   onPublish: (productId: string) => void;
+  onDiscard: (productId: string) => void;
   onEditCopy?: (product: Product) => void;
 }
 
@@ -14,6 +15,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   product,
   onCopy,
   onPublish,
+  onDiscard,
   onEditCopy
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
@@ -71,7 +73,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <div className="absolute inset-0 bg-slate-900/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
 
         {/* Badge do Canto Superior Esquerdo: Porcentagem de Desconto */}
-        <div className="absolute top-3 left-3 z-10">
+        <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
           <div
             className={`flex items-center gap-1 px-3 py-1.5 rounded-full font-black text-sm tracking-tight shadow-md text-white ${
               isHighDiscount 
@@ -82,6 +84,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             <Tag className="w-3.5 h-3.5" />
             <span>-{product.discountPercentage}% OFF</span>
           </div>
+          {isNewProduct(product) && (
+            <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[11px] font-black tracking-wide shadow-sm">
+              NOVO
+            </span>
+          )}
         </div>
 
         {/* Canto Superior Direito: Categoria & Link Mercado Livre */}
@@ -241,15 +248,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             )}
           </button>
 
-          {/* 3. Botão Secundário: Marcar como Publicado */}
-          <button
-            id={`publish-btn-${product.id}`}
-            onClick={() => onPublish(product.id)}
-            className="w-full py-1.5 px-3 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            <span>Marcar como Publicado</span>
-          </button>
+          {/* 3. Botões Secundários: Marcar como Publicado / Descartar */}
+          <div className="flex items-center gap-1">
+            <button
+              id={`publish-btn-${product.id}`}
+              onClick={() => onPublish(product.id)}
+              className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <span>Marcar como Publicado</span>
+            </button>
+            <button
+              id={`discard-btn-${product.id}`}
+              onClick={() => onDiscard(product.id)}
+              className="py-1.5 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Não serve para postar: some do Radar e não volta"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Descartar</span>
+            </button>
+          </div>
 
         </div>
 

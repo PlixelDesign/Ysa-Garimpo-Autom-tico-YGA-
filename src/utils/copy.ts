@@ -1,5 +1,16 @@
 import { Product } from '../types/product';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Produto que o garimpo não encontra há 3 dias provavelmente saiu de oferta
+export function isOfferFresh(product: Product): boolean {
+  return Date.now() - new Date(product.lastSeenAt).getTime() < 3 * DAY_MS;
+}
+
+export function isNewProduct(product: Product): boolean {
+  return Date.now() - new Date(product.createdAt).getTime() < DAY_MS;
+}
+
 export const formatBRL = (val: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
